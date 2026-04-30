@@ -1,0 +1,26 @@
+# Secrets — 绝对不能进 git（CLAUDE.md 第 7 节铁律）
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude Code 本地状态（不进 git）
+.claude/
