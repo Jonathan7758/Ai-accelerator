@@ -171,11 +171,11 @@ L2 由 4 个角色构成,**职责不能越界**:
 
 > 这一节会随项目演进更新。每次完成一个 Phase,更新这里。
 
-- **Phase 0**:基础设施搭建 — **[进行中]**
-- **Phase 1**:Watcher v0 — 待启动
-- **Phase 2**:Analyst — 待启动
-- **Phase 3**:Facilitator + 决策流程 — 待启动
-- **Phase 4**:Craftsman — 待启动
+- **Phase 0**:基础设施搭建 — ✅ **完成**(2026-04-30,14 项 health_check 通过)
+- **Phase 1**:数据观察层(Connector + Librarian v0 + Watcher v0 + acc CLI + systemd timer)— ✅ **完成**(2026-05-02,21 项 health_check 通过,详见 PROJECT_BLUEPRINT.md §6.7)
+- **Phase 2**:分析层(Librarian v1 升级 + Analyst v0)— 待启动
+- **Phase 3**:协作层(Facilitator + 决策状态机)— 待启动
+- **Phase 4**:执行层(Craftsman + git PR 流水线)— 待启动
 
 每个 Phase 的具体内容见对应的 PHASE_N_SPEC.md。
 

@@ -486,7 +486,39 @@ Phase 2/4 启动前需评估"Supabase 部分功能是否影响 L2"
 
 ### 6.7 实际产出(Phase 1 完成后回填)
 
-> _待回填_
+**完成日期**:2026-05-02
+
+#### 模块清单与代码路径
+
+| 模块 | 路径 | Step | 备注 |
+|---|---|---|---|
+| 共享 DB / 日志 / RunLogger | `meta_ops/common/{db,run_log,logging_config}.py` | 1 / 2 | Phase 1 全模块依赖 |
+| `l2_run_log` migration | `sql/002_run_log.sql` | 2 | 已 apply |
+| Pulse Connector + dataclass | `meta_ops/pulse_connector/{connector,models}.py` | 3 | 4 测试通过(对齐真实 schema 后) |
+| 数据契约文档 | `knowledge/pulse/SCHEMA_NOTES.md` | 3 | 修订过程见 §6.8.1 |
+| Librarian v0 | `meta_ops/librarian/v0.py` | 4 | 镜像 5 张表 schema |
+| Watcher v0 | `meta_ops/watcher/v0.py` | 5 | 写 ops_metrics + 周日聚合 |
+| `acc` CLI | `meta_ops/cli/main.py` | 6 | 4 个子命令 |
+| systemd unit | `/etc/systemd/system/acc-{librarian,watcher}.{service,timer}` | 7 | 23:00 / 06:00 SGT |
+| 健康检查扩展 | `scripts/health_check.py`(+ 7 项) | 8 | Phase 0 14 + Phase 1 7 = 21 |
+
+#### 首次成功运行时间(SGT)
+
+- Librarian v0:**2026-05-02 12:47:04**(手动触发)/ systemd 触发 14:08:47
+- Watcher v0:**2026-05-02 13:09:18**(手动触发)/ systemd 触发 14:10:29
+- 第一条 ops_metrics 行:**article 8306f44f**(冉闵杀胡令)at 13:09:18,source=`pulse_pg_via_tunnel`
+
+#### Phase 1 验收当日数据
+
+| 指标 | 值 |
+|---|---|
+| ops_metrics 总行数 | 11(article=5, topic=6) |
+| l2_run_log 总行数 | 8(librarian ok×3 / watcher partial×5) |
+| knowledge/pulse/schema/*.md | 5(articles, topics, publishes, interactions, configs) |
+| health_check 通过项 | 21 / 21 |
+| Pulse Connector 单元测试 | 4 / 4 |
+
+> Watcher 全部 partial 是设计行为(`interactions deferred to Phase 2/3 per SCHEMA_NOTES.md §5`),不是缺陷。
 
 ### 6.8 踩到的坑(Phase 1 进行中持续记录)
 
@@ -514,6 +546,37 @@ Phase 2/4 启动前需评估"Supabase 部分功能是否影响 L2"
 - 创建 `/opt/accelerator/knowledge/pulse/SCHEMA_NOTES.md` 作为权威数据契约文档
 - 修订 Connector 代码(详见 CONNECTOR_REVISION.md)
 - Phase 1 Step 3 范围内移除 `interactions` 表接入(推迟到 Phase 2/3)
+
+#### 6.8.2 服务器部署管道在 Phase 1 才补上
+
+**现象**:Phase 0 的 `/opt/accelerator/` 不是 git repo,也没有 `deploy.sh`;Phase 1 起开始频繁推代码改动到服务器,scp 单文件容易漏传或传错路径(PROGRESS_SNAPSHOT 已记录)。
+
+**处理**:Q&A 后选择"独立 git workdir + cp 同步"两段式:
+- `/opt/accelerator-git/`:HTTPS clone GitHub(public repo,无需 server 端 SSH key),`git pull` 拿最新
+- `/opt/accelerator/`:运行时根目录,持有 `.env` / `.venv` / DB-applied migration state,通过 `cp` 从 git workdir 同步源码
+
+**教训**:
+- 部署路径要在 Phase 0 就立起来,不能等到"开始改代码"再补——本次靠人在场协调成本可控,自动化阶段会出问题
+- Phase 0 `deploy.sh` 缺失是真实疏漏,补一份 idempotent 的 `deploy.sh`(读 git workdir → rsync 排除 .env/.venv → 重启相关 systemd unit)是 Phase 2 启动前应做的小工
+
+#### 6.8.3 SSH heredoc + Windows Git Bash 转义反复踩坑
+
+**现象**:Phase 1 期间至少 4 次因 `ssh server "...$VAR..."` 在 Windows Git Bash 上被双层处理,导致变量失踪、`\d` 反斜杠被吃、`bash -c "..."` 嵌入 `\$doc` 直接语法错。
+
+**固化模式**:复杂命令一律走"本地写脚本 → scp 到 /tmp → server 端独立调用"三步,**不再写多层嵌套引号的 heredoc**。该模式已写进 MEMORY.md 作为跨会话记忆。
+
+**教训**:执行环境的怪癖必须主动避雷,而不是每次撞墙都"试一下另一种引号"。`PROGRESS_SNAPSHOT.md` 里"已踩过的坑"列表是这个机制的载体。
+
+#### 6.8.4 partial 状态语义需要明确区分"故意"与"故障"
+
+**现象**:Watcher v0 因为 interactions 表 Phase 1 不接入,**每次跑都标 partial**(原因:`interactions deferred to Phase 2/3`)。`acc status` 因此一直显示 ⚠️5,看起来像系统在持续报警。
+
+**处理**:本期接受这个"假阳性",因为 partial 的语义工具(`run.mark_partial(reason)`)是对的,问题在于 status 视图没区分"故意 partial"和"意外 partial"。Phase 2 起 `acc status` 应区分:
+- ⚠️ "deferred"(已知不接入,无需关注)
+- ⚠️ "degraded"(有些数据没拉到,需关注)
+- ❌ "failed"(整体失败)
+
+**教训**:状态机的语义粒度不够细,会把"显式标记"和"未知问题"混成一锅。Phase 2 Analyst 触发逻辑应基于"degraded/failed",不基于"非 ok"——否则会被一直 deferred 噪声淹没。
 
 ---
 
@@ -1091,6 +1154,15 @@ ops_decisions 写入 status='approved' (Phase 3 完成)
 架构层升级:蓝图 §3.1 从"REST API"改为"SSH 隧道 + 本机 PG",影响 Phase 1 Connector 实现
 协作素养观察:执行方在权限闭合(5.6.4)上做了 spec 之外的正确加固,标志着"使用方反向 review spec"机制开始生效——这是 L2 自我迭代能力的微观体现
 文档体系完善:本次合并蓝图补丁时,识别到"具体拓扑图不该住蓝图",拆出 INFRASTRUCTURE.md,完善文档分辨率分层
+
+### 2026-05-02 Phase 1 完成
+
+- **完成情况**:21 项 health_check 全部通过(Phase 0 14 + Phase 1 7),Pulse Connector 4 单元测试全过,Librarian / Watcher / acc CLI / systemd timer 全链路跑通
+- **关键产出**:`SCHEMA_NOTES.md` 数据契约 / Connector + dataclass / Librarian v0 / Watcher v0(写 ops_metrics)/ `acc` CLI(status/librarian/watcher/backfill)/ acc-{librarian,watcher}.{service,timer}
+- **首次运行**:Librarian 12:47 SGT(手动) / Watcher 13:09 SGT(手动) / systemd 触发于 14:08-14:10
+- **关键决策**:Phase 1 内 interactions 表不接入,推迟到 Phase 2/3 启动前再处理;改 SCHEMA_NOTES.md 之外的代码,必须先对齐数据契约(已写入 §10.10 横切关注点)
+- **元层启示**:Phase 1 暴露的 SPEC 设计方法论缺陷(理想字段 vs 真实字段)和部署管道 Phase 0 时未立起的疏漏,直接催生 §10.10 数据契约规则和 §6.8.2 部署管道改进。**这正是 L2 自我迭代能力在元层的早期体现:做项目本身改进了"做项目的方法论"**
+- **遗留小工**:补 `/opt/accelerator/deploy.sh`(idempotent rsync + systemd reload);改 `acc status` 的 partial 状态视图区分 deferred / degraded(详见 §6.8.4)
 
 ### 2026-04-30 Phase 1 Step 3 — Schema 重审
 
