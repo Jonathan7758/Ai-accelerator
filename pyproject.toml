@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "accelerator"
+version = "0.1.0"
+description = "Accelerator L2 - Meta-Ops Layer"
+requires-python = ">=3.11"
+
+[project.scripts]
+acc = "meta_ops.cli.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["meta_ops*"]
+
+[tool.pytest.ini_options]
+testpaths = ["meta_ops"]
+python_files = ["test_*.py"]
