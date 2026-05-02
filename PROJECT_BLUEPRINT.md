@@ -578,6 +578,12 @@ Phase 2/4 启动前需评估"Supabase 部分功能是否影响 L2"
 
 **教训**:状态机的语义粒度不够细,会把"显式标记"和"未知问题"混成一锅。Phase 2 Analyst 触发逻辑应基于"degraded/failed",不基于"非 ok"——否则会被一直 deferred 噪声淹没。
 
+**落实(2026-05-02,Phase 1 收尾)**:已上线。设计上避开了 schema migration——partial 在 DB 仍是 status='partial' 单一值,区分语义靠 `summary->'partial_reasons'` 内每条 reason 的前缀约定 `[deferred]` / `[degraded]`。
+- 写入侧:`watcher/v0.py` 4 处 + `librarian/v0.py` 1 处 `partial_reasons.append(...)` 都加前缀
+- 视图侧:`cli/main.py:_classify_run_status(status, reasons) -> str` 把 partial 行映射到 deferred/degraded;老数据(无前缀)按"字面包含 deferred"兜底,7 天窗口期满自动失效
+- `acc status` Run Log 段 + Recent issues 段都用新分类;Recent issues 已不再被 deferred 噪声污染
+- Smoke 测 12/12 通过;服务器 `acc status` 实测 watcher 5 行正确显示 🟡 deferred
+
 ---
 
 ## 7. Phase 2 — 分析层

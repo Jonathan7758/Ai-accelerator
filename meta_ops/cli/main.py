@@ -21,6 +21,38 @@ def cli():
 
 
 # ─────────────────────────────────────────────
+# acc status helpers
+# ─────────────────────────────────────────────
+
+def _classify_run_status(status: str, reasons) -> str:
+    """把 l2_run_log 行映射成显示态。
+
+    - status='partial' 的行根据 summary['partial_reasons'] 前缀细分:
+      * 全部 [deferred] → 'deferred' (设计行为, 不需关注)
+      * 任一 [degraded] / 无前缀 → 'degraded' (需关注)
+    - 老数据 (无前缀) 按字面包含 'deferred' 兜底, 否则归 degraded。
+      过去 7 天窗口期满后此分支自然失效。
+    """
+    if status != 'partial':
+        return status
+    if not reasons:
+        return 'degraded'
+    deferred_count = 0
+    for r in reasons:
+        if not isinstance(r, str):
+            return 'degraded'
+        if r.startswith('[deferred]'):
+            deferred_count += 1
+        elif r.startswith('[degraded]'):
+            return 'degraded'
+        elif 'deferred' in r:  # 老数据兜底
+            deferred_count += 1
+        else:
+            return 'degraded'
+    return 'deferred' if deferred_count == len(reasons) else 'degraded'
+
+
+# ─────────────────────────────────────────────
 # acc status
 # ─────────────────────────────────────────────
 
@@ -44,33 +76,42 @@ def status():
     else:
         print("\n❌ Librarian never synced")
 
-    # Run log 过去 7 天
+    # Run log 过去 7 天 — 按"显示状态"聚合 (区分 deferred / degraded)
+    # partial 行在 DB 一律 status='partial';区分逻辑由本视图基于
+    # summary->'partial_reasons' 中的前缀 [deferred] / [degraded] 完成。
+    # 详见 PROJECT_BLUEPRINT.md §6.8.4。
     print("\n── Run Log (past 7 days) ──")
     with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            SELECT kind, status, count(*) AS n
+            SELECT kind, status, summary->'partial_reasons' AS reasons
             FROM l2_run_log
             WHERE started_at > now() - interval '7 days'
-            GROUP BY kind, status
-            ORDER BY kind, status
         """)
         rows = cur.fetchall()
 
     if not rows:
         print("  (no runs)")
     else:
-        # 透视
-        by_kind = {}
+        by_kind: dict = {}
         for r in rows:
-            by_kind.setdefault(r['kind'], {})[r['status']] = r['n']
+            display = _classify_run_status(r['status'], r['reasons'])
+            by_kind.setdefault(r['kind'], {})
+            by_kind[r['kind']][display] = by_kind[r['kind']].get(display, 0) + 1
 
-        for kind, stats in by_kind.items():
+        sym_map = {
+            'ok': '✅', 'deferred': '🟡', 'degraded': '⚠️',
+            'failed': '❌', 'running': '⏳',
+        }
+        order = ('ok', 'deferred', 'degraded', 'failed', 'running')
+
+        for kind in sorted(by_kind):
+            stats = by_kind[kind]
             line = f"  {kind:<12}"
-            for stat in ('ok', 'partial', 'failed', 'running'):
+            for stat in order:
                 if stat in stats:
-                    sym = {'ok': '✅', 'partial': '⚠️', 'failed': '❌', 'running': '⏳'}[stat]
-                    line += f"  {sym}{stats[stat]:<3}"
+                    line += f"  {sym_map[stat]}{stats[stat]:<3}"
             print(line)
+        print("  legend: ✅ ok  🟡 deferred (by-design)  ⚠️ degraded (attention)  ❌ failed  ⏳ running")
 
     # ops_metrics 行数
     print("\n── ops_metrics ──")
@@ -89,23 +130,33 @@ def status():
             for st, n in rows:
                 print(f"  {st:<20} {n:>6}")
 
-    # 最近一次失败
-    print("\n── Recent failures ──")
+    # 需关注的运行: failed + degraded (不含 deferred 噪声)
+    print("\n── Recent issues (failed / degraded, past 7 days) ──")
     with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            SELECT kind, started_at, error_message
+            SELECT kind, status, started_at, error_message,
+                   summary->'partial_reasons' AS reasons
             FROM l2_run_log
-            WHERE status = 'failed' AND started_at > now() - interval '7 days'
-            ORDER BY started_at DESC LIMIT 3
+            WHERE started_at > now() - interval '7 days'
+              AND status IN ('failed', 'partial')
+            ORDER BY started_at DESC LIMIT 20
         """)
         rows = cur.fetchall()
 
-    if not rows:
+    issue_rows = []
+    for r in rows:
+        display = _classify_run_status(r['status'], r['reasons'])
+        if display in ('failed', 'degraded'):
+            issue_rows.append((display, r))
+
+    if not issue_rows:
         print("  (none)")
     else:
-        for r in rows:
+        for display, r in issue_rows[:5]:
             ts = r['started_at'].astimezone(SG_TZ).strftime('%m-%d %H:%M')
-            print(f"  {ts}  {r['kind']:<10}  {(r['error_message'] or '')[:80]}")
+            sym = '❌' if display == 'failed' else '⚠️'
+            msg = (r['error_message'] or '')[:80]
+            print(f"  {sym} {ts}  {r['kind']:<10}  {msg}")
 
     print()
     db.close()

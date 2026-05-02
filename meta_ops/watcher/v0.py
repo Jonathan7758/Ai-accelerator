@@ -73,11 +73,11 @@ def run_watcher_v0(target_date: Optional[date] = None) -> dict:
             freshness = check_librarian_freshness()
             summary['librarian_freshness_hours'] = freshness
             if freshness is None:
-                summary['partial_reasons'].append("Librarian never synced")
+                summary['partial_reasons'].append("[degraded] Librarian never synced")
                 log.warning("Librarian has never synced. Watcher continues but degraded.")
             elif freshness > LIBRARIAN_FRESHNESS_HOURS:
                 summary['partial_reasons'].append(
-                    f"Librarian stale: {freshness:.1f}h old"
+                    f"[degraded] Librarian stale: {freshness:.1f}h old"
                 )
                 log.warning(f"Librarian last synced {freshness:.1f}h ago (>{LIBRARIAN_FRESHNESS_HOURS}h)")
 
@@ -94,7 +94,7 @@ def run_watcher_v0(target_date: Optional[date] = None) -> dict:
             #   把"故意不实现"误报成"拉取失败"。详见 SCHEMA_NOTES.md §5。
             interactions = []
             summary['partial_reasons'].append(
-                "interactions deferred to Phase 2/3 per SCHEMA_NOTES.md §5"
+                "[deferred] interactions table — Phase 2/3 per SCHEMA_NOTES.md §5"
             )
 
             summary['articles_count'] = len(articles)
@@ -132,7 +132,7 @@ def _safe_fetch(fetch_fn, target_date, table_label, summary):
         return fetch_fn(target_date)
     except Exception as e:
         log.error(f"Failed to fetch {table_label}: {e}")
-        summary['partial_reasons'].append(f"{table_label}: {str(e)[:100]}")
+        summary['partial_reasons'].append(f"[degraded] {table_label}: {str(e)[:100]}")
         return []
 
 

@@ -115,7 +115,7 @@ def run_librarian_v0() -> dict:
 
             # 部分失败:有 error 但有些表成功了
             if summary['errors'] and summary['tables_synced'] > 0:
-                run.mark_partial(f"{len(summary['errors'])} tables failed")
+                run.mark_partial(f"[degraded] {len(summary['errors'])} tables failed")
             elif summary['errors']:
                 # 全失败:直接抛,RunLogger __exit__ 会标 failed
                 raise RuntimeError(f"All tables failed: {summary['errors']}")
