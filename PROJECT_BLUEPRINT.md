@@ -184,7 +184,13 @@ L2 的智力上限不来自模型变聪明,来自系统积累的"做了什么决
 │   └──────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────┘
                                 ↕
-                  只读 Supabase REST API + git PR
+ "L2 → SSH 隧道 → Pulse 本机 PG(SELECT-only 角色)+ git PR"
+L2 与 Pulse 之间走 SSH 端口转发隧道,而非直接 PG 连接(因 HK 安全组未对柔佛开 5432)
+Pulse 同时持有本机 PG(主数据)和 Supabase(辅助服务:storage/auth/realtime)
+L2 只对接 Pulse 的本机 PG,不读 Supabase
+隧道由 systemd 管理,具备自愈能力
+L2 在 Pulse 那边的 PG 角色权限范围:仅 SELECT,无任何写权限,无 schema-level CREATE
+具体拓扑/IP/端口/用户名/SSH 算法等运维级细节:见 /opt/accelerator/docs/INFRASTRUCTURE.md
                                 ↕
 ┌──────────────────────────────────────────────────────────────────┐
 │  L1 Pulse(已存在,不在本项目范围内)                                │
@@ -326,14 +332,47 @@ Phase 4 (Craftsman)
 
 ### 5.5 实际产出(Phase 0 完成后回填)
 
-> _待回填_
-> - 服务器 IP:_
-> - 完成日期:_
-> - health_check 输出:_
+服务器:火山引擎柔佛 accelerator-jb(具体 IP 见 INFRASTRUCTURE.md)
+OS / Python:Ubuntu 24.04 LTS / Python 3.12.3(spec 写 22.04/3.11,实际更高,无影响)
+完成日期:2026-04-30
+资源使用:disk 3.2G/40G,memory 3.8GB,无 swap
+健康检查:14 项全过(超过 spec 期望的 11 项)
+
+比 spec 多做的事(完成度高一档):
+
+SSH 隧道方案 + systemd 自愈
+l2_reader 的 schema-level CREATE 权限主动闭合
+l2_tunnel SSH 用户加固(限制 X11/agent/pty/permitopen)
+
+具体配置参数见 INFRASTRUCTURE.md。
 
 ### 5.6 踩到的坑(Phase 0 进行中持续记录)
 
-> _待回填_
+5.6.1 OpenSSH 便利关键字在不同发行版上行为不一致
+教训:OpenSSH 的便利关键字(如 restrict)在不同版本/发行版上行为不一致,生产环境用经典枚举写法(no-X11-forwarding,no-agent-forwarding,no-pty,permitopen=...)更可靠。
+5.6.2 通过 SSH 推 heredoc 脚本不能用 read -r 读密码
+教训:bash -s 把整个 heredoc 当脚本读,内层 read 拿不到 stdin 输入。需要把敏感参数作为脚本变量直接嵌入(走 SSH 加密通道),不走 stdin。
+5.6.3 paramiko 在 Windows console 触发 surrogates 错误
+教训:跨平台 SSH 工具链假设 UTF-8 是不安全的,bytes-level 操作(stdin.buffer.read() + channel.sendall(bytes))更可靠。
+5.6.4 PG schema-level CREATE 权限通过 PUBLIC 默认 ACL 继承
+教训:PG 的默认 ACL public=UC 让 SELECT-only 角色仍能建空表。真正的"L2 不可写 L1"必须包含 schema-level CREATE 检查。Spec §6.3 验证表应在以后类似项目复用时加上 CREATE 检查。
+5.6.5 Pulse HK 的环境与蓝图初版假设不一致
+事实修订(此为蓝图核心事实变更,不仅是踩坑):
+
+Pulse HK 的 PostgreSQL 是 13.23,不是蓝图初版假设的 16
+Pulse HK 时区是 Asia/Shanghai,不是 Singapore
+Pulse 是"本机 PG 主数据 + Supabase 辅助服务"混合架构,不是纯 Supabase
+
+对后续 Phase 的硬约束:
+
+Phase 1 SQL 不使用 PG 14+ 特性
+Phase 1 Watcher 内部统一用 UTC,边界做时区转换
+L2 Connector 走 SSH 隧道直连 PG,不用 Supabase REST API
+Phase 2/4 启动前需评估"Supabase 部分功能是否影响 L2"
+
+5.6.6 跨 LLM 会话协作中明文 secret 泄漏
+教训:跨 LLM 会话协作时,secret 必须从源头 redact;源头未 redact 后只能轮换。这条规则刻意严苛是因为不对称——轮换成本几分钟,泄漏成本可能是几个月。
+处理记录:Phase 0 期间两台机器 root 密码各在聊天中明文出现一次,已于 2026-04-30 全部轮换。
 
 ---
 
@@ -451,7 +490,30 @@ Phase 4 (Craftsman)
 
 ### 6.8 踩到的坑(Phase 1 进行中持续记录)
 
-> _待回填_
+#### 6.8.1 SPEC 设计方法论错误:理想模型 vs 接入规约未分离
+
+**现象**:Phase 1 Step 3 真实连接 Pulse 时,Connector SQL 报 `UndefinedColumn: word_count`。深度诊断后发现失配不是单点 bug,而是 SPEC 在 5 张表上系统性地把"理想字段"当作"真实字段"。
+
+**根因**(由项目所有者诊断,完整版见 SCHEMA_NOTES.md):
+
+1. **SPEC 基于"运营该看什么"写,没基于"Pulse 真实长什么样"写**——典型的从想象设计而非从现实设计
+2. **Pulse 用 jsonb 做"演进缓冲",SPEC 把 jsonb key 错当成顶层列**——`word_count` 在 `versions` jsonb 里,不在顶层
+3. **概念归属错位**——`angle` 实际是 article 的属性(每文一选),SPEC 错挂在 topic 上
+4. **Pulse 多平台改造后 SPEC 没跟上**——`cover_url` 顶层列保留为兼容遗迹但全空,真值搬到 `platform_versions.cover_<platform>`
+5. **SPEC 假设了 Pulse 还没做的功能**——`publishes.metrics` 当前所有行 = `{}`(数据回流未实现);`publishes.last_synced_at` 不存在;`interactions` 表的 sentiment / replied / platform / user_name 几乎全错位
+
+**教训**:
+
+- 跨系统集成的 SPEC,必须把"L2 内部数据模型(应然)"和"L1 → L2 接入规约(实然)"分开写
+- 写"读外部系统"代码前,**第一步必须是 dump 真实 schema 做基线**,不是直接写 SQL
+- jsonb 字段在 Pulse 这种系统里是"演进缓冲",不能假装它们是顶层列
+- 概念归属(谁拥有什么属性)必须从真实业务流验证,不能靠直觉推断
+
+**处理**:
+
+- 创建 `/opt/accelerator/knowledge/pulse/SCHEMA_NOTES.md` 作为权威数据契约文档
+- 修订 Connector 代码(详见 CONNECTOR_REVISION.md)
+- Phase 1 Step 3 范围内移除 `interactions` 表接入(推迟到 Phase 2/3)
 
 ---
 
@@ -982,6 +1044,31 @@ ops_decisions 写入 status='approved' (Phase 3 完成)
 - 备份目标:本机 + (Phase 4 后)推到 GitHub 私有仓库 backup/ 分支
 - 关键 ops_decisions 同时手动导出到 markdown(冗余保险)
 
+### 10.10 数据契约文档化
+
+#### 决策
+
+任何"L2 读 L1 数据"的代码,**必须先有 SCHEMA_NOTES.md 描述的数据契约**,才能写代码。
+
+#### 文档位置
+
+`/opt/accelerator/knowledge/pulse/SCHEMA_NOTES.md`
+
+放在 knowledge 目录而非 docs 目录,因为它是 knowledge mirror 的一部分(人类决策版),区别于 Librarian v0 自动产出的 `schema/*.md`(机器友好版)。
+
+#### 维护规则
+
+- **Phase 1 阶段**:人类手动维护(每次 Pulse 改 schema 时)
+- **Phase 2 阶段起**:Librarian v1 升级时,LLM 自动产出 `extracted/schema_alignment.md` 作为补充,SCHEMA_NOTES.md 仍保留作人类决策记录
+- **任何 Pulse schema 演化**:必须更新 SCHEMA_NOTES.md 变更日志,且评估是否需要改 Connector / Watcher / Librarian
+- **任何 SCHEMA_NOTES.md 之外的代码**(Connector、Watcher、Librarian),**必须在写代码前对齐文档**,而不是写代码后回填文档
+
+#### 这条规则的边界
+
+- ✅ 适用:任何 L2 读 L1 数据的代码
+- ❌ 不适用:L2 自己内部数据(ops_decisions / ops_metrics 等)——那是 L2 自己的 schema,蓝图直接定义
+- ❌ 不适用:Pulse 自己的代码(L2 不参与 Pulse 内部演进)
+
 ---
 
 ## 11. 踩坑记录与决策日志
@@ -997,7 +1084,26 @@ ops_decisions 写入 status='approved' (Phase 3 完成)
 - **关键决策**:加入 Layer 2(Pulse 知识镜像)+ Librarian 角色,补 Phase 1 漏洞
 - **教训**:Spec 里的"使用方本能疑问"经常比"架构师自检"更准——把它视为压力测试
 
-> _后续踩坑持续追加_
+2026-04-30 Phase 0 完成
+
+完成情况:14 项 health_check 全部通过,SSH 隧道方案落地,l2_reader 权限闭合到位
+关键决策:Step 4 走 SSH 隧道而非 Supabase REST API,因 Pulse 主数据在本机 PG 13.23
+架构层升级:蓝图 §3.1 从"REST API"改为"SSH 隧道 + 本机 PG",影响 Phase 1 Connector 实现
+协作素养观察:执行方在权限闭合(5.6.4)上做了 spec 之外的正确加固,标志着"使用方反向 review spec"机制开始生效——这是 L2 自我迭代能力的微观体现
+文档体系完善:本次合并蓝图补丁时,识别到"具体拓扑图不该住蓝图",拆出 INFRASTRUCTURE.md,完善文档分辨率分层
+
+### 2026-04-30 Phase 1 Step 3 — Schema 重审
+
+- **背景**:Step 3 真实连接 Pulse 触发 UndefinedColumn 错误,引发对 SPEC 的系统性 schema 重审
+- **根因**:SPEC 设计方法论错误——把"L2 内部数据模型"和"L1→L2 接入规约"压在同一份代码里写
+- **关键产出**:
+  - `SCHEMA_NOTES.md`(权威数据契约文档)
+  - Connector 修订版(对齐真实 schema)
+  - 新增蓝图横切关注点 §10.10
+- **元层启示**(由项目所有者主动诊断,值得记录):
+  - 协作里"反向 review SPEC"机制开始成熟——使用方不只发现错,还能从错中提炼方法论问题
+  - 这种诊断深度直接影响后续 Phase——Phase 2/3 SPEC 会预先包含 schema 对齐步骤
+- **决策**:Phase 1 内 interactions 表不接入,推迟到 Phase 2/3 启动前再处理
 
 ---
 
@@ -1021,6 +1127,10 @@ ops_decisions 写入 status='approved' (Phase 3 完成)
 | **l2_run_log** | L2 自身运行历史表 |
 | **A 象限号** | 项目所有者计划开的第二个内容矩阵账号(一个人的 AI 公司) |
 | **历史号** | Pulse 当前服务的内容矩阵,江盛.红如火 |
+| **SCHEMA_NOTES.md** | Pulse → L2 数据契约文档,knowledge mirror 的人类决策版 |
+| **angle** | article 的属性(每篇文章选一个角度),不是 topic 的属性 |
+| **已知空通道** | Pulse schema 里已存在但当前所有行为空的字段(如 `publishes.metrics`)。Connector 正常拉取,L2 内部数据流保持完整,等待 L2 数据回流 worker(Phase 2+)填充 |
+| **数据契约对齐** | 写"读外部系统"代码前,先 dump 真实 schema 并固化到 SCHEMA_NOTES.md 的工序 |
 
 ---
 
