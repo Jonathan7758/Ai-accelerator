@@ -1,6 +1,6 @@
 # Accelerator L2 — 进度快照
 
-> **快照时间**: 2026-05-02(Phase 1 完成 + Phase 1 收尾增强落实 + Phase 2 spec v0-draft)
+> **快照时间**: 2026-05-03(Phase 2 Step 1 通路就绪、代码写完、待服务器首次同步验证)
 > **目的**: 下次会话可直接接上,无需重新读全部历史
 > **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → `PHASE2_SPEC.md` → 决定下一步
 
@@ -8,9 +8,9 @@
 
 ## 1. 一句话状态
 
-**Phase 0 + Phase 1 完成 ✅ + 收尾增强落实 ✅。Phase 2(Librarian v1)spec 已起草,待 Jonathan 拍板 4 个决策点后开干。**
+**Phase 2 Step 1 通路全打通(HK rsync + GitHub deploy key),`pulse_source.py` 已写,`deploy.sh` 已写,等服务器端 deploy + 首次同步冒烟。4 个决策已落地(spec v1)。**
 
-详细见 `PROJECT_BLUEPRINT.md §6.7 / §6.8 / §6.8.4 / §11(2026-05-02 条)`。
+详细见 `PROJECT_BLUEPRINT.md §6.7 / §6.8 / §6.8.4 / §11(2026-05-02 条)` + `PHASE2_SPEC.md §5(决策 1-4 已答)`。
 
 ---
 
@@ -77,32 +77,41 @@
 
 ---
 
-## 4. Phase 2 起点(等开干)
+## 4. Phase 2 进展
 
-### Spec 文件
+### 4.1 Spec 状态:v1(2026-05-03)
 
-`PHASE2_SPEC.md`(v0-draft, 289 行)— **只覆盖 Librarian v1**;Analyst v0 留单独 spec(Librarian v1 验收后再起草)。
+`PHASE2_SPEC.md` — Librarian v1 升级,§5 四项决策已答(LLM 双轨留痕 / HK rsync+GitHub clone / docs 全要 / code_index 名单 Step 1 后由 Claude 提议)。
 
-### 6 个 Step 设计(已写入 spec)
+### 4.2 Step 进度
 
-1. Pulse 源接入(docs + code repo 在 L2 端如何可达)
-2. docs/ 全量同步(无 LLM 路径)
-3. 增量检测 manifest(纯函数,可单测)
-4. code_index/ LLM 加工
-5. extracted/ LLM 加工
-6. 接入主流程 + acc status 反映新源 + 验收(目标 25/25 health_check)
+| Step | 状态 | 备注 |
+|---|---|---|
+| 0. 通路准备 | ✅ 通(2026-05-03) | HK `l2_docs` 用户已建 + authorized_keys 配好;GitHub `project-pulse` repo deploy key 已加;accelerator-jb `~/.ssh/config` 配好 `pulse-hk-docs` + `github-pulse` 双 alias;HK 上装了 rsync(原本没有) |
+| 1. Pulse 源接入(`pulse_source.py`) | 🟡 代码写完,待服务器跑 | `meta_ops/librarian/pulse_source.py` 写好(`sync_pulse_docs` + `sync_pulse_code`,不可达时优雅返回,不抛异常) |
+| 2. docs/ 全量同步 | ⬜ 未开始 | |
+| 3. 增量检测 manifest(纯函数 + 单测) | ⬜ 未开始 | |
+| 4. code_index/ LLM 加工 | ⬜ 未开始 | 起步名单 Step 1 跑完后 Claude 提议 |
+| 5. extracted/ LLM 加工 | ⬜ 未开始 | 同上 |
+| 6. 接入主流程 + acc status + 25/25 health_check | ⬜ 未开始 | |
 
-### Jonathan 待决策(开 Step 1 前必须答)
+### 4.3 Phase 1 遗留小工
 
-1. **LLM 调用留痕落哪儿** — DB 表(migration 003) / 文件 jsonl / 双轨
-2. **Pulse 源接入方式** — Pulse docs 物理位置 + Pulse 代码仓库 URL + read-only 凭据
-3. **docs/ 同步过滤规则** — 黑/白名单
-4. **code_index / extracted v1 起步范围** — 5+ 个关键 .py + 4+ 个业务概念主题(具体名单)
+| 项 | 状态 |
+|---|---|
+| `deploy.sh`(rsync 同步代码,排除 .env / .venv / knowledge/) | ✅ 写好(2026-05-03,本地 commit 待 push) |
+| `interactions` 表接入 | 推迟到 Phase 2/3 末段决定 |
 
-### 仍未做的 Phase 1 遗留小工
+### 4.4 关键凭据 / 通道(2026-05-03 立的,后续别动)
 
-- 补 `/opt/accelerator/deploy.sh`(Phase 2 启动前再做,避免 Phase 2 期间手动 cp 出事)
-- `interactions` 表接入(Phase 2/3 阶段决定,待 SCHEMA_NOTES.md §5.3 对齐)
+| 资源 | 路径 / 值 |
+|---|---|
+| HK docs SSH key (acceleratorjb 端) | `~accelerator/.ssh/id_pulse_hk`(Phase 0 老 key,新加 l2_docs 授权) |
+| HK docs 用户 | `l2_docs@43.99.0.100`,bash shell,只读 `/opt/pulse/version1/docs/` |
+| GitHub deploy key | `~accelerator/.ssh/id_pulse_repo` (ed25519,2026-05-03 新生)+ GitHub repo deploy key 名 `accelerator-jb-l2-readonly`(read-only) |
+| SSH alias (pulse-hk-docs) | l2_docs@43.99.0.100, IdentityFile id_pulse_hk |
+| SSH alias (github-pulse) | git@github.com, IdentityFile id_pulse_repo |
+| HK root 密码 | **应在 2026-05-03 后立刻 rotate**(本次走 SSHPASS 临时用,聊天里出现过) |
 
 ---
 

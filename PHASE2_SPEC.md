@@ -233,37 +233,33 @@ Step 6: 接入 Librarian v0 主流程 + acc status 反映新源 + 验收
 
 ---
 
-## 5. 待定决策(开干前必须先答)
+## 5. 已确定决策(spec v1,Jonathan 2026-05-03 答复)
 
-> 以下 4 条不解决,Step 1-5 写不下去。请 Jonathan 拍板。
+### 决策 1:LLM 调用留痕 = **C 双轨**
+- **DB**:migration 003 新增 `l2_llm_calls` 表(主键、kind、关联 run_id、模型、tokens、cost、prompt 摘要)
+- **文件**:`knowledge/_meta/llm_calls.jsonl`(逐次 append,含完整 prompt + response)
+- 写入顺序:先文件全量(失败不影响主流程)→ 再 DB 摘要(失败 → 标 [degraded])
 
-### 决策 1:LLM 调用留痕落哪儿?
+### 决策 2:Pulse 源接入 = **HK rsync(docs)+ GitHub clone(code)**
+| 源 | 通道 | 凭据 |
+|---|---|---|
+| docs | rsync via SSH alias `pulse-hk-docs` (`l2_docs@43.99.0.100:/opt/pulse/version1/docs/`) | `~accelerator/.ssh/id_pulse_hk`(Phase 0 key,HK 上 `l2_docs` 用户的 authorized_keys) |
+| code | git via SSH alias `github-pulse` (`git@github.com:Jonathan7758/project-pulse`,private) | `~accelerator/.ssh/id_pulse_repo`(2026-05-03 新生,GitHub repo deploy key,read-only) |
 
-| 选项 | 利弊 |
-|---|---|
-| A. 新增 DB 表 `l2_llm_calls`(走 migration 003) | 可 SQL 查、跟 run_log 关联;但要写 schema |
-| B. 落 `knowledge/_meta/llm_calls.jsonl`(纯文件) | 零 schema 改动;但日后查询要 grep/jq |
-| C. 同时落两边(DB 摘要 + 文件全量) | 最完整;但工作量翻倍 |
+部署状态(2026-05-03 已就位):
+- HK `l2_docs` 用户已建、authorized_keys 已加 id_pulse_hk.pub、`/opt/pulse/version1/docs/` perm 755/644(o+rX)
+- GitHub `project-pulse` repo 已加 deploy key `accelerator-jb-l2-readonly`(read-only)
+- HK 装了 rsync(原本没有,装时用 yum)
+- accelerator-jb 上 `~accelerator/.ssh/config` 配两条 alias、known_hosts 加 github.com host keys
+- 冒烟测:`ssh pulse-hk-docs` ok / `rsync -avzn` ok / `git ls-remote` ok
 
-**推荐**:A(走 migration 003)。Phase 2 起 LLM 是核心成本项,DB 查询能力会一直需要。
+### 决策 3:docs 同步过滤 = **全要(无黑/白名单)**
+`pulse_src/docs/` 下所有 .md 文件都同步,不排除任何目录。
 
-### 决策 2:Pulse 源接入方式
-
-| Pulse 资源 | 选项 |
-|---|---|
-| 文档(.md) | (a) `rsync over SSH from pulse-hk` / (b) Pulse 仓库已在 GitHub → `git clone` / (c) GitHub raw API |
-| 代码 (.py) | 同上,但代码仓库一定在 git 管理,推荐 (b) |
-
-**需要 Jonathan 提供**:Pulse 文档实际位于哪里(HK 服务器路径 or Git 仓库路径)+ Pulse 代码仓库 URL + 是否已有 read-only 凭据。
-
-### 决策 3:docs/ 同步过滤规则
-
-是否要排除某些目录?(internal-only / draft / archive)— 需要列一份白名单或黑名单。
-
-### 决策 4:code_index 与 extracted 的 v1 起步范围
-
-- `code_index/` 第一批 5+ 个关键 .py 文件:**Jonathan 列名单**(选业务最核心、最常改的)
-- `extracted/` 第一批 4+ 个业务概念主题:**Jonathan 列名单**(BLUEPRINT 提到 matrix_v2_taxonomy / title_templates,需补齐到 4 个)
+### 决策 4:code_index / extracted v1 起步范围 = **Step 1 跑通后 Claude 扫 repo 提议 → Jonathan review 拍板**
+- Step 1 把 Pulse repo 拉到 `pulse_src/code/` 后,Claude 扫一遍代码结构
+- Claude 输出候选清单(5+ 关键 .py + 4+ extracted 主题,带选择理由)
+- Jonathan review,确认 / 调整后写入本 spec,再进 Step 4/5
 
 ---
 
@@ -286,4 +282,4 @@ Step 6: 接入 Librarian v0 主流程 + acc status 反映新源 + 验收
 
 ---
 
-> **本 Spec 状态**:v0-draft (2026-05-02)。待 Jonathan 答复 §5 决策 1-4 后,定稿为 v1,正式开干 Step 1。
+> **本 Spec 状态**:v1 (2026-05-03)。§5 四项决策已答,Step 1 通路就绪,代码已写(`meta_ops/librarian/pulse_source.py`),待服务器端首次同步验证。

@@ -1,0 +1,3 @@
+# Force LF line endings for shell scripts so they run correctly on Linux
+# (Windows editors may save as CRLF; git normalizes to LF on commit).
+*.sh text eol=lf
