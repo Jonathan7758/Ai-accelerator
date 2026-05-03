@@ -26,7 +26,7 @@ HEAD_SHA=$(sudo -u accelerator git -C "$GIT_DIR" rev-parse --short HEAD)
 echo "[deploy]         HEAD now: $HEAD_SHA"
 
 echo "[deploy] step 2/3: rsync code dirs..."
-SYNC_DIRS=(meta_ops scripts sql)
+SYNC_DIRS=(meta_ops scripts sql prompts)
 for d in "${SYNC_DIRS[@]}"; do
   [[ -d "$GIT_DIR/$d" ]] || { echo "[deploy]         skip $d/ (not present)"; continue; }
   rsync -a --delete \
