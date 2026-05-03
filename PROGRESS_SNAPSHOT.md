@@ -1,16 +1,16 @@
 # Accelerator L2 — 进度快照
 
-> **快照时间**: 2026-05-03(Phase 2 Step 1 通路就绪、代码写完、待服务器首次同步验证)
+> **快照时间**: 2026-05-03(Phase 2 Librarian v1 收官,26/26 health_check 通过)
 > **目的**: 下次会话可直接接上,无需重新读全部历史
-> **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → `PHASE2_SPEC.md` → 决定下一步
+> **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → 决定下一步
 
 ---
 
 ## 1. 一句话状态
 
-**Phase 2 Step 1 通路全打通(HK rsync + GitHub deploy key),`pulse_source.py` 已写,`deploy.sh` 已写,等服务器端 deploy + 首次同步冒烟。4 个决策已落地(spec v1)。**
+**Phase 2 Librarian v1 完成 ✅**(2026-05-03)。Step 1-6 全过,26/26 health_check 通过,acc status 显示 docs 13 / code_index 6 / extracted 4 三类新源齐。systemd timer 自动每天 06:00 SGT 跑 v1 全流程。首跑总成本 $1.47,后续增量为 0。
 
-详细见 `PROJECT_BLUEPRINT.md §6.7 / §6.8 / §6.8.4 / §11(2026-05-02 条)` + `PHASE2_SPEC.md §5(决策 1-4 已答)`。
+剩余 Phase 2:Analyst v0(独立 spec,本 spec 验收完成后再起草)。
 
 ---
 
@@ -77,41 +77,70 @@
 
 ---
 
-## 4. Phase 2 进展
+## 4. Phase 2 Librarian v1 收官(2026-05-03)
 
-### 4.1 Spec 状态:v1(2026-05-03)
+### 4.1 6 个 Step 全过
 
-`PHASE2_SPEC.md` — Librarian v1 升级,§5 四项决策已答(LLM 双轨留痕 / HK rsync+GitHub clone / docs 全要 / code_index 名单 Step 1 后由 Claude 提议)。
-
-### 4.2 Step 进度
-
-| Step | 状态 | 备注 |
+| Step | 落地物 | 状态 |
 |---|---|---|
-| 0. 通路准备 | ✅ 通(2026-05-03) | HK `l2_docs` 用户已建 + authorized_keys 配好;GitHub `project-pulse` repo deploy key 已加;accelerator-jb `~/.ssh/config` 配好 `pulse-hk-docs` + `github-pulse` 双 alias;HK 上装了 rsync(原本没有) |
-| 1. Pulse 源接入(`pulse_source.py`) | 🟡 代码写完,待服务器跑 | `meta_ops/librarian/pulse_source.py` 写好(`sync_pulse_docs` + `sync_pulse_code`,不可达时优雅返回,不抛异常) |
-| 2. docs/ 全量同步 | ⬜ 未开始 | |
-| 3. 增量检测 manifest(纯函数 + 单测) | ⬜ 未开始 | |
-| 4. code_index/ LLM 加工 | ⬜ 未开始 | 起步名单 Step 1 跑完后 Claude 提议 |
-| 5. extracted/ LLM 加工 | ⬜ 未开始 | 同上 |
-| 6. 接入主流程 + acc status + 25/25 health_check | ⬜ 未开始 | |
+| 1. Pulse 源接入 | `meta_ops/librarian/pulse_source.py`(sync_pulse_docs / sync_pulse_code) | ✅ |
+| 2. docs/ 全量同步 | `meta_ops/librarian/sync_docs.py` + `knowledge/pulse/docs/_meta/manifest.json` | ✅ |
+| 3. 增量检测 manifest(纯函数) | `meta_ops/librarian/change_detect.py` + 9 单测全过 | ✅ |
+| 4. code_index/ LLM 加工 | `meta_ops/librarian/build_code_index.py` + `prompts/code_index_v1.md` | ✅ |
+| 5. extracted/ LLM 加工 | `meta_ops/librarian/build_extracted.py` + `prompts/extracted_v1.md` | ✅ |
+| 6. 主流程 + status + health_check | `meta_ops/librarian/v1.py` + cli/main.py 改造 + health_check 加 5 项 | ✅ |
 
-### 4.3 Phase 1 遗留小工
+### 4.2 验收数据
+
+| 维度 | 数据 |
+|---|---|
+| health_check | **26/26**(spec 目标 25,实际加 5 项含 l2_llm_calls 表 check) |
+| `acc status` 新源显示 | docs 13 / code_index 6 / extracted 4(全 ✅) |
+| systemd | `acc-librarian.service` ExecStart 切到 `meta_ops.librarian.v1`,TimeoutStartSec=600 |
+| LLM 留痕双轨 | DB `l2_llm_calls` 12 行 + jsonl 12 行(对得上) |
+| 首跑成本 | $1.47(code_index 8 calls $0.66 + extracted 4 calls $0.81) |
+| 增量行为 | sha256 跳过 unchanged → 后续日跑 = $0 |
+
+### 4.3 6 个 code_index 文件(全部 ≥7/10 人工 review)
+
+`knowledge/pulse/code_index/version1/hk_node/services/`:
+- `daily_workflow.py.md`(8.5/10 by Jonathan)
+- `history_engine/content_matrix.py.md`
+- `publisher/telegram_review.py.md`
+- `content_engine/wechat_draft_adapter.py.md`
+- `cover_engine/dynasty_prompts.py.md`
+- `dashboard/collector.py.md`
+
+### 4.4 4 个 extracted 主题
+
+`knowledge/pulse/extracted/`:
+- `matrix_v2_taxonomy.md`(308 行,$0.38 — 最贵也最重要,把 10 类目/3 联动模式/5 等级/94 周/651 篇全挖出来)
+- `title_templates.md`(108 行,$0.15)
+- `tg_review_flow.md`(157 行,$0.11)
+- `publish_platforms.md`(207 行,$0.16)
+
+### 4.5 Phase 1 遗留小工(已收尾)
 
 | 项 | 状态 |
 |---|---|
-| `deploy.sh`(rsync 同步代码,排除 .env / .venv / knowledge/) | ✅ 写好(2026-05-03,本地 commit 待 push) |
+| `deploy.sh` | ✅ 已写并多次跑通,排除 .venv / .env / knowledge / docs symlink |
 | `interactions` 表接入 | 推迟到 Phase 2/3 末段决定 |
 
-### 4.4 关键凭据 / 通道(2026-05-03 立的,后续别动)
+### 4.6 关键凭据 / 通道(2026-05-03 立的,后续别动)
 
 | 资源 | 路径 / 值 |
 |---|---|
-| HK docs SSH key (acceleratorjb 端) | `~accelerator/.ssh/id_pulse_hk`(Phase 0 老 key,新加 l2_docs 授权) |
+| HK docs SSH key (accelerator-jb 端) | `~accelerator/.ssh/id_pulse_hk`(Phase 0 老 key,新加 l2_docs 授权) |
 | HK docs 用户 | `l2_docs@43.99.0.100`,bash shell,只读 `/opt/pulse/version1/docs/` |
-| GitHub deploy key | `~accelerator/.ssh/id_pulse_repo` (ed25519,2026-05-03 新生)+ GitHub repo deploy key 名 `accelerator-jb-l2-readonly`(read-only) |
-| SSH alias (pulse-hk-docs) | l2_docs@43.99.0.100, IdentityFile id_pulse_hk |
-| SSH alias (github-pulse) | git@github.com, IdentityFile id_pulse_repo |
-| HK root 密码 | **应在 2026-05-03 后立刻 rotate**(本次走 SSHPASS 临时用,聊天里出现过) |
+| GitHub deploy key | `~accelerator/.ssh/id_pulse_repo` (ed25519,2026-05-03 新生)+ repo deploy key 名 `accelerator-jb-l2-readonly`(read-only) |
+| SSH alias `pulse-hk-docs` | l2_docs@43.99.0.100, IdentityFile id_pulse_hk |
+| SSH alias `github-pulse` | git@github.com, IdentityFile id_pulse_repo |
+| HK root 密码 | **2026-05-03 在聊天里暴露过(SSHPASS 临时用)→ 必须立刻 rotate** |
+| Anthropic API key | 同样在聊天里暴露过 → **必须立刻在 console.anthropic.com 旋转** |
+
+### 4.7 Phase 2 全局 schema 改动
+
+`sql/003_llm_calls.sql` — `l2_llm_calls` 表(决策 1 = C 双轨之 DB 摘要侧)。schema_versions 三条:001 / 002 / 003。
 
 ---
 

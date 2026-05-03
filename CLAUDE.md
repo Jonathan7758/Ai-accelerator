@@ -173,7 +173,11 @@ L2 由 4 个角色构成,**职责不能越界**:
 
 - **Phase 0**:基础设施搭建 — ✅ **完成**(2026-04-30,14 项 health_check 通过)
 - **Phase 1**:数据观察层(Connector + Librarian v0 + Watcher v0 + acc CLI + systemd timer)— ✅ **完成**(2026-05-02,21 项 health_check 通过,详见 PROJECT_BLUEPRINT.md §6.7)
-- **Phase 2**:分析层(Librarian v1 升级 + Analyst v0)— 待启动
+- **Phase 2 (Librarian v1)**:分析层 — Librarian 升级到 v1 ✅ **完成**(2026-05-03,26 项 health_check 通过)
+  - Step 1-6 全过:Pulse 源接入(HK rsync + GitHub deploy key)/ docs 全量同步 / 增量检测 manifest(纯函数 9 单测过)/ code_index 6 文件 LLM 加工 / extracted 4 主题 LLM 加工 / v1 主流程 + acc status + health_check
+  - 首跑总成本 $1.47(后续增量为 0 = $0)
+  - 双轨 LLM 留痕(`l2_llm_calls` 表 + `knowledge/_meta/llm_calls.jsonl`)
+- **Phase 2 (Analyst v0)**:分析层 — Analyst 部分 — 待启动(独立 spec)
 - **Phase 3**:协作层(Facilitator + 决策状态机)— 待启动
 - **Phase 4**:执行层(Craftsman + git PR 流水线)— 待启动
 
