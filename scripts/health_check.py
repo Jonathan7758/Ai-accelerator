@@ -330,6 +330,39 @@ def build_checks(env: Dict[str, str]) -> List[Check]:
         query="SELECT count(*) FROM l2_llm_calls"
     ))
 
+    # ── Phase 2 Analyst v0 checks(决策 5 = 6 项) ──────────
+
+    checks.append(CommandCheck(
+        "acc-analyst.timer enabled",
+        ["systemctl", "is-enabled", "acc-analyst.timer"],
+        must_contain="enabled"
+    ))
+    checks.append(FileExistsCheck(
+        "acc-analyst.service exists",
+        "/etc/systemd/system/acc-analyst.service"
+    ))
+    checks.append(FileExistsCheck(
+        "reports dir exists",
+        "/opt/accelerator/reports"
+    ))
+    checks.append(FileExistsCheck(
+        "analyst_v0_weekly prompt exists",
+        "/opt/accelerator/prompts/analyst_v0_weekly.md"
+    ))
+    checks.append(PostgresCheck(
+        "analyst has succeeded",
+        env, "ACC_DB_HOST", "ACC_DB_PORT", "ACC_DB_NAME",
+        "ACC_DB_USER", "ACC_DB_PASSWORD",
+        query=("SELECT count(*) FROM l2_run_log "
+               "WHERE kind='analyst' AND status IN ('ok','partial')")
+    ))
+    checks.append(PostgresCheck(
+        "l2_llm_calls has analyst kind",
+        env, "ACC_DB_HOST", "ACC_DB_PORT", "ACC_DB_NAME",
+        "ACC_DB_USER", "ACC_DB_PASSWORD",
+        query="SELECT count(*) FROM l2_llm_calls WHERE kind='analyst'"
+    ))
+
     return checks
 
 

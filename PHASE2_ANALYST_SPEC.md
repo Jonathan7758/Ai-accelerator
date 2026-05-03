@@ -281,69 +281,47 @@ Step 7: health_check 加 N 项 + 验收(首次跑 + 4 周连续 ≥ 7/10)
 
 ---
 
-## 5. 待定决策(开干前必须先答)
+## 5. 已确定决策(spec v1,Jonathan 2026-05-04 答复)
 
-> 以下 5 条不解决,Step 1-3 写不下去。请 Jonathan 拍板。
+### 决策 1:时间窗口 = **本周 + 过去 4 周 + 上周报告 continuity**
+- gather_metrics 取本周(ISO week)+ 过去 4 周
+- 加载 reports/<上一 ISO week>.md 作为"上周关注点"参考,放进 user message 末尾
+- Sonnet 4.6 上下文 1M tokens,容纳得下
 
-### 决策 1:时间窗口 = 本周 + 过去 4 周?
+### 决策 2:数据稀疏降级 = **仍调 LLM,prompt 强制如实标注**
+- 不论 metrics 有多少行(哪怕 0),都跑 LLM
+- prompt 模板里硬性要求"数据稀疏时写'目前数据不足以下结论',严禁编造数字"
+- run_log_health 里的 data_sparse 信号传给 LLM,作为提示
+- 失败处理仍走 [degraded] 标记 + 报告写出(stub 也是有价值的 stub)
 
-| 选项 | 利弊 |
+### 决策 3:`acc knowledge query` = **独立 spec,Analyst 先收**
+- 本 spec 不做 knowledge query
+- Analyst v0 收官后,起草 `PHASE2_KNOWLEDGE_QUERY_SPEC.md`
+- BLUEPRINT §7.7 完成标志里的 `acc knowledge query` 在那个 spec 完成时回填
+
+### 决策 4:候选决策字段 = **5 必填 + evidence(≥1 引用)必填,before/after 可选**
+
+| 字段 | 必填 / 可选 |
 |---|---|
-| A. 仅本周(简单) | v0 起步快,但缺趋势,周报内容贫 |
-| B. 本周 + 过去 4 周(BLUEPRINT 推荐) | 有趋势,Sonnet 上下文绰绰够;但 Phase 2 期间数据稀疏(每周 ~50 行),"过去 4 周" 也只 ~200 行 |
-| C. 本周 + 过去 4 周 + 上周报告作 continuity 参考 | B 的基础上加"接上周关注的指标",连续性强 |
+| `decision_type` | 必填(enum: prompt_change / matrix_update / workflow_tweak / strategy_pivot / other) |
+| `subject` | 必填 |
+| `rationale` | 必填(带数据/业务知识引用) |
+| `verification_plan` | 必填(具体指标 + 时间窗) |
+| `risk` | 必填 |
+| `evidence` | 必填(JSON 数组,≥1 条引用 ops_metrics 行 / extracted topic / 上周报告) |
+| `before / after` | 可选(Phase 4 Craftsman 才需要) |
 
-**推荐**:**C**。报告之间有 continuity,运营看着不像每周从零开始。Sonnet 4.6 上下文 1M tokens,完全够。
+prompt 模板硬性约束:任一必填字段缺失 → 写"未知"或"无足够数据",**不省略整个字段**。
 
-### 决策 2:数据稀疏(Watcher 不全)的降级策略
+### 决策 5:health_check 加 **6 项**(总数 26 → 32)
+1. `acc-analyst.timer enabled`
+2. `acc-analyst.service` 存在
+3. `reports/` 目录存在
+4. `prompts/analyst_v0_weekly.md` 存在
+5. `analyst has succeeded`(l2_run_log 至少一条 kind='analyst' status IN (ok, partial))
+6. `l2_llm_calls 含 analyst kind`(至少一条 kind='analyst')
 
-Phase 1 ops_metrics 才 13 行,Phase 2 期间预计 ~50/周。Watcher 偶尔 deferred(已知 by-design)。Analyst 第一次跑很可能遇到"过去 4 周一共 30 行"的稀疏场景。
-
-| 选项 | 行为 |
-|---|---|
-| A. 跳过分析,产出 stub 报告"等数据" | 防止 LLM 编数字,但报告价值低 |
-| B. 仍调 LLM,在 prompt 里强制要求"如实标注数据稀疏",报告里写诚实结论 | 锻炼 prompt 的纪律性,首跑就能用 |
-| C. 计算 metrics 行数,< 阈值(如 50 行)→ A,≥ 阈值 → B | 折中 |
-
-**推荐**:**B**。系统第一性原则:Analyst 是"读数据 + 业务知识 + 写诊断",数据少时也能产出"目前数据不足以下结论,但根据 extracted/ 业务文档,以下假设值得跟进"这样的草稿。stub 报告等于"不工作",失去练手机会。
-
-### 决策 3:`acc knowledge query` 是否进 v0?
-
-BLUEPRINT §7.7 列为 Phase 2 完成标志的一项,但跟周报是两个 use case(交互查询 vs 周期诊断)。
-
-| 选项 | 利弊 |
-|---|---|
-| A. 进本 spec(加 Step 8) | 一次完成 BLUEPRINT §7.7 全清单 |
-| B. 单独 spec(`PHASE2_KNOWLEDGE_QUERY_SPEC.md`) | Spec 不臃肿,各自验收门槛清晰 |
-| C. 推迟到 Phase 3(配 Facilitator 一起做,因 TG 也是交互入口) | Phase 2 收得更紧 |
-
-**推荐**:**B**。Analyst 周报和知识查询有不同的工程关注点(批处理 vs 交互延迟、长上下文 vs RAG-style 切片);分开 spec,首先收 Analyst v0,再起草 knowledge query。
-
-### 决策 4:候选决策的字段必填性
-
-每条决策建议(报告里"候选决策"小节的每一条)需要包含哪些字段?对齐 ops_decisions 表的话:
-
-| 字段 | 必填 / 可选 | 说明 |
-|---|---|---|
-| `decision_type` | 必填 | enum: prompt_change / matrix_update / workflow_tweak / strategy_pivot / other |
-| `subject` | 必填 | 受影响对象,如 `title_template_T1` |
-| `rationale` | 必填 | 为什么这么改,带数据/业务知识引用 |
-| `verification_plan` | 必填 | 怎么验证生效(具体指标 + 时间窗) |
-| `risk` | 必填 | 改坏了会影响什么 |
-| `evidence` | 必填 | 引用了哪些 ops_metrics 行 / extracted topic / 报告(JSON 数组形式) |
-| `before / after` | 可选 | code-level 改动初稿,如果 LLM 能猜到 |
-
-**推荐**:5 个必填(decision_type / subject / rationale / verification_plan / risk)+ evidence 必填(≥1 条引用)。before/after 可选(Phase 4 Craftsman 才需要)。
-
-### 决策 5:health_check 新增项目数
-
-| 选项 | 加哪些 |
-|---|---|
-| A. 4 项 | timer enabled / reports dir / reports ≥ 1 / prompt 模板存在 |
-| B. 6 项 | A + analyst 至少跑过一次成功 + l2_llm_calls 含 analyst kind |
-| C. 8 项 | B + reports/_meta/index.json 存在且非空 + 最近 reports 新鲜(<10 天) |
-
-**推荐**:**B**(总数 26 + 6 = 32)。reports 新鲜度由 acc status 显示更合适,不进硬性 health_check。
+reports 新鲜度走 `acc status`,不进硬性 health_check(避免 timer 还没跑过的当下就 fail)。
 
 ---
 
@@ -384,4 +362,4 @@ BLUEPRINT §7.7 列为 Phase 2 完成标志的一项,但跟周报是两个 use c
 
 ---
 
-> **本 Spec 状态**:v0-draft (2026-05-03)。待 Jonathan 答复 §5 决策 1-5 后,定稿为 v1,正式开干 Step 1。
+> **本 Spec 状态**:v1 (2026-05-04)。§5 五项决策已答(Jonathan 全照推荐),Step 1 开干。

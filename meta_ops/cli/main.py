@@ -24,6 +24,23 @@ def cli():
 # acc status helpers
 # ─────────────────────────────────────────────
 
+def _print_latest_report(reports_root: Path) -> None:
+    """One line:'Latest weekly report: 2026W18.md (3.2 days ago)' or warning."""
+    print("\n── Latest weekly report ──")
+    if not reports_root.is_dir():
+        print("  ⚠️ no reports/ directory — Analyst v0 not run yet")
+        return
+    files = sorted(reports_root.glob("*.md"))
+    if not files:
+        print("  ⚠️ no reports yet")
+        return
+    latest = files[-1]
+    mtime = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
+    age_d = (datetime.now(timezone.utc) - mtime).total_seconds() / 86400
+    symbol = "✅" if age_d < 10 else "⚠️"
+    print(f"  {symbol} {latest.name}  ({age_d:.1f} days ago)")
+
+
 def _print_source_freshness(label: str, root: Path, manifest_path: Path, glob: str) -> None:
     """Print one line: '<label>: N files, <age>h ago' or 'never built'."""
     if not root.is_dir():
@@ -121,6 +138,9 @@ def status():
         Path("/opt/accelerator/knowledge/pulse/extracted/_meta/manifest.json"),
         "*.md",
     )
+
+    # Analyst latest weekly report
+    _print_latest_report(Path("/opt/accelerator/reports"))
 
     # Run log 过去 7 天 — 按"显示状态"聚合 (区分 deferred / degraded)
     # partial 行在 DB 一律 status='partial';区分逻辑由本视图基于
@@ -229,6 +249,42 @@ def librarian_run(use_v0):
         from meta_ops.librarian.v1 import run_librarian_v1
         result = run_librarian_v1()
     print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+
+
+@cli.group()
+def analyst():
+    """Analyst 操作。"""
+    pass
+
+
+@analyst.command('run')
+@click.option('--week', 'week_iso', default=None,
+              help='ISO week like 2026W18 (default: current)')
+def analyst_run(week_iso):
+    """手动触发 Analyst v0 周报。"""
+    from meta_ops.analyst.v0 import run_analyst_v0
+    result = run_analyst_v0(week_iso=week_iso)
+    print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+
+
+@analyst.command('latest')
+@click.option('--print', 'print_content', is_flag=True,
+              help='Print full report content (default: just print path)')
+def analyst_latest(print_content):
+    """打印最新的 Analyst 周报路径(或内容)。"""
+    reports_root = Path("/opt/accelerator/reports")
+    if not reports_root.is_dir():
+        click.echo("(no reports/ directory)")
+        return
+    files = sorted(reports_root.glob("*.md"))
+    if not files:
+        click.echo("(no reports yet)")
+        return
+    latest = files[-1]
+    if print_content:
+        click.echo(latest.read_text(encoding='utf-8'))
+    else:
+        click.echo(str(latest))
 
 
 @cli.group()
