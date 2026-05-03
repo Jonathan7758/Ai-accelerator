@@ -1,7 +1,7 @@
 # Accelerator L2 — Phase 2 整体设计总结
 
-> **生成时间**:2026-05-03
-> **状态**:Librarian v1 ✅ 收官 / Analyst v0 📋 spec 起草中(v0-draft)
+> **生成时间**:2026-05-03(初稿)/ 2026-05-04(更新为整体收官版)
+> **状态**:**Phase 2 整体完成 ✅** — Librarian v1 + Analyst v0 双双收官,32/32 health_check
 > **目的**:Phase 2 的"一张纸鸟瞰"——给 Jonathan 决策、给将来 Claude Code 开局快速对齐用。
 > **不替代**:本文不替代 BLUEPRINT §7(高层蓝图)、PHASE2_SPEC.md(Librarian v1 spec)、PHASE2_ANALYST_SPEC.md(Analyst v0 spec),只把它们的脉络拉到一处。
 
@@ -76,7 +76,7 @@ knowledge/pulse/
 
 ---
 
-### 2.2 Analyst v0(📋 spec 起草中,v0-draft 待答 5 决策)
+### 2.2 Analyst v0(✅ 已完成 2026-05-04)
 
 **职责**:每周日 20:00 SGT 跑一次,读"数据 + 业务知识"产出运营周报草稿,**绝不直接落 ops_decisions**。
 
@@ -106,29 +106,35 @@ knowledge/pulse/
               └─────────────────┘                                     
 ```
 
-**v0 范围 7 个 Step**:
-1. 上下文组装(纯函数,可单测)
-2. prompt 模板 + Analyst 角色定义
-3. v0.py 主流程(沿用 RunLogger + llm_client)
-4. 报告输出 + index.json
-5. acc CLI 扩展(`acc analyst run` / `latest`)
-6. systemd timer(Sun 20:00 SGT)
-7. health_check 加项 + 验收(首跑 ≥ 7/10)
+**v0 范围 7 个 Step**(全 ✅):
+1. ✅ 上下文组装(纯函数,13 单测)— `meta_ops/analyst/context.py`
+2. ✅ prompt 模板 — `prompts/analyst_v0_weekly.md`(6 章节固定结构)
+3. ✅ v0.py 主流程
+4. ✅ 报告输出 + `reports/_meta/index.json`
+5. ✅ acc CLI(`acc analyst run` / `latest`)
+6. ✅ systemd timer(Sun 20:00 SGT enabled)
+7. ✅ health_check 加 6 项(总数 26 → 32)
+
+**5 项决策已落地(spec v1)**:
+1. 时间窗口 = 本周 + 过去 4 周 + 上周报告 continuity
+2. 数据稀疏 = 仍调 LLM,prompt 强制如实标注
+3. `acc knowledge query` = 推迟到独立 spec
+4. 候选决策 5 必填字段 + evidence ≥1 引用
+5. health_check 加 6 项
+
+**首份周报实测(2026-05-04)**:
+- `reports/2026W19.md` 163 行 / 评分 8.5/10
+- 成本 $0.152(23.6K input + 5.4K output tokens)
+- 数据极稀疏(本周 0 行 ops_metrics)仍产出 4 条具体可验证决策
+- 挖出 `setup_cross_links_for_3lian()` 这种业务潜规则(matrix_v2_taxonomy 的隐性 invariant)
 
 **v0 不做(留下游)**:
 - TG 周报推送(Phase 3 周报推送器)
 - approve/reject 状态机(Phase 3 Facilitator)
 - Verification 回填(Phase 4)
-- `acc knowledge query` 交互查询 CLI(待决策 §5.3,可能独立 spec)
+- `acc knowledge query` 交互查询 CLI(待独立 spec)
 
-**5 项待决策**(Jonathan 答完才能开干 Step 1):
-1. 时间窗口:本周 + 过去 4 周 + 上周报告 continuity?
-2. 数据稀疏降级策略:仍调 LLM 让它如实标注?
-3. `acc knowledge query` 进 v0 / 独立 spec / 推迟?
-4. 候选决策必填字段(decision_type / subject / rationale / verification_plan / risk + evidence)?
-5. health_check 加 4 / 6 / 8 项?
-
-详见:**[PHASE2_ANALYST_SPEC.md](./PHASE2_ANALYST_SPEC.md)**(Analyst v0 spec v0-draft)
+详见:**[PHASE2_ANALYST_SPEC.md](./PHASE2_ANALYST_SPEC.md)**(spec v1 已定稿)
 
 ---
 
@@ -227,17 +233,15 @@ knowledge/pulse/
 
 ## 6. Phase 2 收官标志(全图)
 
-完成后能宣告 Phase 2 整体收官的条件:
-
 - [x] **Librarian v1 完成**:6 个 step 全过,26/26 health_check
-- [x] **6 个 code_index** 平均评分 ≥ 7/10
+- [x] **6 个 code_index** 平均评分 ≥ 7/10(daily_workflow 8.5/10)
 - [x] **4 个 extracted** 主题就位
-- [ ] **Analyst v0 spec v1 定稿**(§5 五项决策已答)
-- [ ] **Analyst v0 实跑**:`acc analyst run` 通过 + 首份周报评分 ≥ 7/10
-- [ ] **Analyst timer enabled**:Sun 20:00 SGT 自动跑
-- [ ] **health_check 总数 ≥ 32**(26 + 6 项 Analyst)
+- [x] **Analyst v0 spec v1 定稿**(§5 五项决策已答 — Jonathan 全照推荐)
+- [x] **Analyst v0 实跑**:`acc analyst run` 通过 + 首份周报 8.5/10
+- [x] **Analyst timer enabled**:Sun 20:00 SGT 下次触发 2026-05-10 20:00
+- [x] **health_check 总数 32/32**
 - [ ] (后续观察)Analyst 连续 4 周自动产报告 ≥ 7/10(BLUEPRINT §7.7,不卡 spec 验收)
-- [ ] (可选)`acc knowledge query` 起草(待决策 3 拍板)
+- [ ] (可选)`acc knowledge query` 起草(独立 spec)
 
 ---
 
@@ -267,16 +271,20 @@ Phase 4 是"Craftsman 改 Pulse 代码":
 
 ---
 
-## 8. 当前阻塞 / 下一步
+## 8. 当前状态 / 下一步
 
-**当前唯一阻塞**:Analyst v0 spec §5 的 5 项决策待 Jonathan 答。
+**Phase 2 整体收官 ✅**(2026-05-04)。无阻塞。
 
-**Jonathan 答完 → Claude Code 立刻**:
-1. 把 PHASE2_ANALYST_SPEC.md 的 §5 改成"已确定决策(spec v1)"
-2. 开 Step 1(`meta_ops/analyst/context.py` + 6 单测)
-3. ...一路推到 Step 7 + 验收
+**下一站**:**Phase 3 协作层**(独立 spec 待起草):
+- 周报推送器(解析 reports/<week>.md 的 §4 候选决策段 → TG 消息 + Inline Keyboard)
+- 多 Bot(@acc_analyst_bot / @acc_facilitator_bot 等)
+- 决策状态机(proposed → discussing → approved_pending_rationale → approved → ops_decisions 入库)
+- 12 小时无响应自动归档 deferred
 
-预估:Step 1-7 全做完 ≈ 跟 Librarian v1 量级相当(代码 ~600 行 + 1 prompt 模板 + LLM 实跑成本 ~$0.5-1)。
+详见 `PROJECT_BLUEPRINT.md §8`(Phase 3 高层蓝图)。
+
+**Phase 2 衍生小工(可选)**:
+- `acc knowledge query "X"` CLI(BLUEPRINT §7.7 完成标志中的一项,Analyst spec §5 决策 3 推迟到独立 spec)
 
 ---
 

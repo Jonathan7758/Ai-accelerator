@@ -1,6 +1,6 @@
 # Accelerator L2 — 进度快照
 
-> **快照时间**: 2026-05-03(Phase 2 Librarian v1 收官,26/26 health_check 通过)
+> **快照时间**: 2026-05-04(**Phase 2 整体收官**,32/32 health_check 通过)
 > **目的**: 下次会话可直接接上,无需重新读全部历史
 > **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → 决定下一步
 
@@ -8,9 +8,9 @@
 
 ## 1. 一句话状态
 
-**Phase 2 Librarian v1 完成 ✅**(2026-05-03)。Step 1-6 全过,26/26 health_check 通过,acc status 显示 docs 13 / code_index 6 / extracted 4 三类新源齐。systemd timer 自动每天 06:00 SGT 跑 v1 全流程。首跑总成本 $1.47,后续增量为 0。
+**Phase 2 整体完成 ✅**(2026-05-04)。Librarian v1(2026-05-03)+ Analyst v0(2026-05-04)双双收官。32/32 health_check。systemd 双 timer 自动跑(Librarian 每日 06:00 SGT / Analyst 每周日 20:00 SGT)。首份周报 2026W19.md 8.5/10。Phase 2 累计 LLM 成本 $1.62(后续日跑 = $0,周跑 ≈ $0.15)。
 
-剩余 Phase 2:Analyst v0(独立 spec,本 spec 验收完成后再起草)。
+下一站:Phase 3 协作层(Facilitator + TG Bot 链 + 决策状态机)— 独立 spec 待起草。
 
 ---
 
@@ -77,7 +77,16 @@
 
 ---
 
-## 4. Phase 2 Librarian v1 收官(2026-05-03)
+## 4. Phase 2 整体收官(2026-05-04)
+
+### 4.0 一图概览
+
+| 子系统 | Step 数 | 完成日 | 验收 |
+|---|---|---|---|
+| Librarian v1 | 6 | 2026-05-03 | 26/26 health_check |
+| **Analyst v0** | **7** | **2026-05-04** | **32/32 health_check + 周报 8.5/10** |
+
+### 4.A Phase 2 Librarian v1 收官(2026-05-03)
 
 ### 4.1 6 个 Step 全过
 
@@ -141,6 +150,57 @@
 ### 4.7 Phase 2 全局 schema 改动
 
 `sql/003_llm_calls.sql` — `l2_llm_calls` 表(决策 1 = C 双轨之 DB 摘要侧)。schema_versions 三条:001 / 002 / 003。
+
+---
+
+### 4.B Phase 2 Analyst v0 收官(2026-05-04)
+
+#### 7 Step 全过
+
+| Step | 落地物 | 状态 |
+|---|---|---|
+| 1. 上下文组装(纯函数) | `meta_ops/analyst/context.py`(7 函数 + 4 工具)+ 13 单测全过 | ✅ |
+| 2. prompt 模板 | `prompts/analyst_v0_weekly.md`(6 章节固定结构 / 5 必填字段 / 数据稀疏铁律) | ✅ |
+| 3. v0 主流程 | `meta_ops/analyst/v0.py`(assemble → render → call_claude → 写报告) | ✅ |
+| 4. 报告输出 + index.json | `reports/<week>.md` + `reports/_meta/index.json` 维护 | ✅ |
+| 5. acc CLI 扩展 | `acc analyst run` / `acc analyst latest [--print]` + `acc status` 加 Latest weekly report 行 | ✅ |
+| 6. systemd timer | `acc-analyst.service` + `acc-analyst.timer`(Sun 20:00 SGT)enabled,下次触发 2026-05-10 20:00 | ✅ |
+| 7. health_check 加 6 项 + 验收 | 总数 26 → **32** | ✅ |
+
+#### 验收数据
+
+| 维度 | 数据 |
+|---|---|
+| health_check | **32/32**(spec 目标 32) |
+| 单测 | 13/13(spec 要求 6+) |
+| 首份周报 | `reports/2026W19.md` 163 行 |
+| 周报评分 | **8.5/10**(spec 要求 ≥7/10) |
+| LLM 成本(单次) | $0.152(23.6K input + 5.4K output tokens) |
+| 双轨留痕 | `l2_llm_calls` 加 1 条 kind='analyst' / jsonl 加 1 条 |
+| systemd timer | enabled,下次 Sun 2026-05-10 20:00 SGT |
+
+#### 5 项决策落地(spec v1)
+
+详见 `PHASE2_ANALYST_SPEC.md §5`:
+1. ✅ 时间窗口 = 本周 + 过去 4 周 + 上周报告 continuity
+2. ✅ 数据稀疏 = 仍调 LLM,prompt 强制如实标注
+3. ✅ `acc knowledge query` = 推迟到独立 spec(Phase 2 后续起草)
+4. ✅ 候选决策 5 必填字段 + evidence ≥1 引用
+5. ✅ health_check 加 6 项
+
+#### 首份周报亮点(8.5/10 详情)
+
+- **6 章节结构完美**:数据状态 / 摘要 / 信号识别 / 候选决策 / 验证回填 / 下周关注
+- **诚实**:本周 0 行 ops_metrics → 直接写"数据不足以下结论",不发明数字
+- **跨源整合**:从 matrix_v2_taxonomy + publish_platforms + tg_review_flow 多源融合
+- **挖出潜规则**:决策 4 找出 `setup_cross_links_for_3lian()` 是"唯一需显式调用才生效的 cross_link" — 这种是 Phase 2 设计目标的体现
+- **可验证**:每条决策的 verification_plan 有具体指标 + 时间窗(如"目标 published=true 占比 ≥ 80%,2026W20-W21 验证")
+
+#### 改进项(留 v1.1)
+
+- system prompt 没区分 watcher partial 是 by-design(deferred)还是真 degraded → LLM 把"7 partial"标为问题。下次调 prompt 加上"watcher partial = deferred 是 by-design,不是 degraded"
+- evidence 字段里偶尔把 `topic.status` 当作 `ops_metric` 的 metric 字段引用 — 语义类型混淆,建议加 `type=database_field` 选项
+- prompt cache 没生效(system prompt ~2.7K chars ≈ 800 token,不到 cacheable prefix 1024 token 阈值);周跑成本 $0.15 没省下,但绝对值小不优化
 
 ---
 

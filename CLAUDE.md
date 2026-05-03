@@ -173,12 +173,11 @@ L2 由 4 个角色构成,**职责不能越界**:
 
 - **Phase 0**:基础设施搭建 — ✅ **完成**(2026-04-30,14 项 health_check 通过)
 - **Phase 1**:数据观察层(Connector + Librarian v0 + Watcher v0 + acc CLI + systemd timer)— ✅ **完成**(2026-05-02,21 项 health_check 通过,详见 PROJECT_BLUEPRINT.md §6.7)
-- **Phase 2 (Librarian v1)**:分析层 — Librarian 升级到 v1 ✅ **完成**(2026-05-03,26 项 health_check 通过)
-  - Step 1-6 全过:Pulse 源接入(HK rsync + GitHub deploy key)/ docs 全量同步 / 增量检测 manifest(纯函数 9 单测过)/ code_index 6 文件 LLM 加工 / extracted 4 主题 LLM 加工 / v1 主流程 + acc status + health_check
-  - 首跑总成本 $1.47(后续增量为 0 = $0)
-  - 双轨 LLM 留痕(`l2_llm_calls` 表 + `knowledge/_meta/llm_calls.jsonl`)
-- **Phase 2 (Analyst v0)**:分析层 — Analyst 部分 — 待启动(独立 spec)
-- **Phase 3**:协作层(Facilitator + 决策状态机)— 待启动
+- **Phase 2 整体完成**(2026-05-04,32 项 health_check 通过)
+  - **Librarian v1** ✅(2026-05-03):Pulse 源接入 + docs/code_index/extracted 三源 + 双轨 LLM 留痕。6 文件 code_index + 4 主题 extracted。首跑 $1.47。
+  - **Analyst v0** ✅(2026-05-04):context 上下文组装(13 单测过)+ analyst_v0_weekly prompt + v0 主流程 + acc analyst CLI + Sun 20:00 SGT systemd timer。首份周报 2026W19.md 评分 8.5/10。
+  - 详见 `PHASE2_OVERVIEW.md`(整体鸟瞰)
+- **Phase 3**:协作层(Facilitator + 决策状态机 + 周报推送 TG Bot)— 待启动
 - **Phase 4**:执行层(Craftsman + git PR 流水线)— 待启动
 
 每个 Phase 的具体内容见对应的 PHASE_N_SPEC.md。
