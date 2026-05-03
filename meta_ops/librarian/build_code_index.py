@@ -95,6 +95,13 @@ def build_one(
     out_path.write_text(result["response_text"], encoding="utf-8")
     log.info("wrote code_index: %s (cost $%.4f)", out_path, result["cost_usd"])
 
+    # Update manifest entry for this file (so a subsequent build_all skips it)
+    from meta_ops.librarian.change_detect import sha256_file, load_manifest
+    src = PULSE_CODE_ROOT / rel
+    manifest = load_manifest(CODE_MANIFEST)
+    manifest[rel] = sha256_file(src)
+    write_manifest(CODE_MANIFEST, manifest, PULSE_CODE_ROOT)
+
     return {
         "ok": True, "target_path": rel, "regenerated": True,
         "skipped_reason": None,

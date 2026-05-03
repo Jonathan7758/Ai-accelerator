@@ -24,6 +24,31 @@ def cli():
 # acc status helpers
 # ─────────────────────────────────────────────
 
+def _print_source_freshness(label: str, root: Path, manifest_path: Path, glob: str) -> None:
+    """Print one line: '<label>: N files, <age>h ago' or 'never built'."""
+    if not root.is_dir():
+        print(f"  {label:<11}: ❌ never built")
+        return
+    n_files = sum(1 for p in root.rglob(glob) if p.is_file())
+    if not manifest_path.is_file():
+        print(f"  {label:<11}: 📁 {n_files} files (no manifest)")
+        return
+    try:
+        m = json.loads(manifest_path.read_text(encoding="utf-8"))
+        gen = m.get("generated_at")
+        if not gen:
+            print(f"  {label:<11}: 📁 {n_files} files (manifest unparseable)")
+            return
+        last = datetime.fromisoformat(gen)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+        symbol = "✅" if age < 36 else "⚠️"
+        print(f"  {label:<11}: {symbol} {n_files} files, {age:.1f}h ago")
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"  {label:<11}: ⚠️  {n_files} files (manifest read err: {e})")
+
+
 def _classify_run_status(status: str, reasons) -> str:
     """把 l2_run_log 行映射成显示态。
 
@@ -75,6 +100,27 @@ def status():
         print(f"\n{symbol} Librarian last synced: {age:.1f}h ago")
     else:
         print("\n❌ Librarian never synced")
+
+    # Phase 2 sources(docs / code_index / extracted)
+    print("\n── Librarian v1 sources ──")
+    _print_source_freshness(
+        "docs",
+        Path("/opt/accelerator/knowledge/pulse/docs"),
+        Path("/opt/accelerator/knowledge/pulse/docs/_meta/manifest.json"),
+        "*.md",
+    )
+    _print_source_freshness(
+        "code_index",
+        Path("/opt/accelerator/knowledge/pulse/code_index"),
+        Path("/opt/accelerator/knowledge/pulse/code_index/_meta/manifest.json"),
+        "*.md",
+    )
+    _print_source_freshness(
+        "extracted",
+        Path("/opt/accelerator/knowledge/pulse/extracted"),
+        Path("/opt/accelerator/knowledge/pulse/extracted/_meta/manifest.json"),
+        "*.md",
+    )
 
     # Run log 过去 7 天 — 按"显示状态"聚合 (区分 deferred / degraded)
     # partial 行在 DB 一律 status='partial';区分逻辑由本视图基于
@@ -173,11 +219,16 @@ def librarian():
 
 
 @librarian.command('run')
-def librarian_run():
-    """手动触发 Librarian 同步。"""
-    from meta_ops.librarian.v0 import run_librarian_v0
-    result = run_librarian_v0()
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+@click.option('--v0', 'use_v0', is_flag=True, help='Run schema-mirror only (v0)')
+def librarian_run(use_v0):
+    """手动触发 Librarian 同步(默认 v1 全流程,--v0 只跑 schema mirror)。"""
+    if use_v0:
+        from meta_ops.librarian.v0 import run_librarian_v0
+        result = run_librarian_v0()
+    else:
+        from meta_ops.librarian.v1 import run_librarian_v1
+        result = run_librarian_v1()
+    print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
 
 
 @cli.group()

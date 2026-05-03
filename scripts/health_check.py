@@ -13,7 +13,7 @@ import json
 import socket
 import subprocess
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Tuple, List, Dict
 
 
@@ -99,6 +99,52 @@ class TCPCheck(Check):
                 return True, f"{self.host}:{self.port} reachable"
         except Exception as e:
             return False, f"{self.host}:{self.port} unreachable: {e}"
+
+
+class DirGlobCountCheck(Check):
+    """Pass if at least `min_count` files match pattern under root (recursive)."""
+    def __init__(self, name: str, root: str, pattern: str, min_count: int):
+        super().__init__(name)
+        self.root = Path(root)
+        self.pattern = pattern
+        self.min_count = min_count
+
+    def run(self):
+        if not self.root.is_dir():
+            return False, f"missing dir: {self.root}"
+        n = sum(1 for p in self.root.rglob(self.pattern) if p.is_file())
+        if n < self.min_count:
+            return False, f"only {n} files (need ≥{self.min_count})"
+        return True, f"{n} files (≥{self.min_count})"
+
+
+class FreshManifestCheck(Check):
+    """Pass if manifest.json exists and `generated_at` < `max_age_hours`."""
+    def __init__(self, name: str, manifest_path: str, max_age_hours: float = 36):
+        super().__init__(name)
+        self.path = Path(manifest_path)
+        self.max_age_hours = max_age_hours
+
+    def run(self):
+        if not self.path.is_file():
+            return False, f"missing: {self.path}"
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            return False, f"read err: {e}"
+        gen = data.get("generated_at")
+        if not gen:
+            return False, "no generated_at field"
+        try:
+            last = datetime.fromisoformat(gen)
+        except ValueError as e:
+            return False, f"bad timestamp: {e}"
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+        if age > self.max_age_hours:
+            return False, f"stale: {age:.1f}h (max {self.max_age_hours}h)"
+        return True, f"{age:.1f}h ago"
 
 
 class PostgresCheck(Check):
@@ -247,6 +293,41 @@ def build_checks(env: Dict[str, str]) -> List[Check]:
     checks.append(CommandCheck(
         "acc command installed",
         ["/usr/local/bin/acc", "--help"],
+    ))
+
+    # ── Phase 2 checks ──────────────────────────────
+
+    # pulse_src/code 是 git workdir(代表 Step 1 通)
+    checks.append(FileExistsCheck(
+        "pulse_src/code is git workdir",
+        "/opt/accelerator/knowledge/pulse_src/code/.git"
+    ))
+
+    # docs manifest 新鲜(<36h)
+    checks.append(FreshManifestCheck(
+        "knowledge/pulse/docs manifest fresh",
+        "/opt/accelerator/knowledge/pulse/docs/_meta/manifest.json",
+        max_age_hours=36,
+    ))
+
+    # code_index 至少 5 个 .md
+    checks.append(DirGlobCountCheck(
+        "code_index has ≥5 files",
+        "/opt/accelerator/knowledge/pulse/code_index", "*.md", min_count=5
+    ))
+
+    # extracted 至少 4 个 .md
+    checks.append(DirGlobCountCheck(
+        "extracted has ≥4 topics",
+        "/opt/accelerator/knowledge/pulse/extracted", "*.md", min_count=4
+    ))
+
+    # l2_llm_calls 表存在(migration 003)
+    checks.append(PostgresCheck(
+        "l2_llm_calls table",
+        env, "ACC_DB_HOST", "ACC_DB_PORT", "ACC_DB_NAME",
+        "ACC_DB_USER", "ACC_DB_PASSWORD",
+        query="SELECT count(*) FROM l2_llm_calls"
     ))
 
     return checks
