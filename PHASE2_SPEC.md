@@ -256,10 +256,27 @@ Step 6: 接入 Librarian v0 主流程 + acc status 反映新源 + 验收
 ### 决策 3:docs 同步过滤 = **全要(无黑/白名单)**
 `pulse_src/docs/` 下所有 .md 文件都同步,不排除任何目录。
 
-### 决策 4:code_index / extracted v1 起步范围 = **Step 1 跑通后 Claude 扫 repo 提议 → Jonathan review 拍板**
-- Step 1 把 Pulse repo 拉到 `pulse_src/code/` 后,Claude 扫一遍代码结构
-- Claude 输出候选清单(5+ 关键 .py + 4+ extracted 主题,带选择理由)
-- Jonathan review,确认 / 调整后写入本 spec,再进 Step 4/5
+### 决策 4:code_index / extracted v1 起步范围(2026-05-03 锁定)
+
+**code_index v1 起步 6 个文件**(全部位于 `version1/hk_node/`):
+
+| # | 文件 | LOC | 选它的理由 |
+|---|---|---|---|
+| 1 | `services/daily_workflow.py` | 787 | 每日总编排入口,运营改进首先动这里 |
+| 2 | `services/history_engine/content_matrix.py` | 2484 | 内容矩阵核心策略层,对应 `matrix_v2_taxonomy` |
+| 3 | `services/publisher/telegram_review.py` | 610 | TG review 流程,Phase 3 Facilitator 前置参考 |
+| 4 | `services/content_engine/wechat_draft_adapter.py` | 925 | 内容到微信的关键适配点 |
+| 5 | `services/cover_engine/dynasty_prompts.py` | 583 | 封面 prompt,直接影响产出质感 |
+| 6 | `services/dashboard/collector.py` | 706 | Dashboard 采集,L2 与 Pulse 的指标对接面 |
+
+**extracted v1 起步 4 个主题**:
+
+| # | 主题 | 抽哪些源 | 给 Analyst 用 |
+|---|---|---|---|
+| 1 | `matrix_v2_taxonomy` | docs + `content_matrix.py` | 内容矩阵分类法的权威定义 |
+| 2 | `title_templates` | docs + `content_engine/*` | 标题模板规则 |
+| 3 | `tg_review_flow` | docs(operator-manual)+ `telegram_review.py` | TG review 决策流(approve/reject/edit 语义) |
+| 4 | `publish_platforms` | docs + `publisher/*` | 各平台发布流程差异 |
 
 ---
 
