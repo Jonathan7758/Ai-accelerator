@@ -1,6 +1,6 @@
 # Accelerator L2 — 进度快照
 
-> **快照时间**: 2026-05-04(**Phase 3 Step 1+2 完成,Step 3 待启**)
+> **快照时间**: 2026-05-04(**Phase 3 Step 1+2+3 完成,Step 4 待启**)
 > **目的**: 下次会话(包括跨机器接力)可直接接上,无需重新读全部历史
 > **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → 进入 §6 决定下一步
 
@@ -10,11 +10,12 @@
 
 **Phase 2 整体完成 ✅**(2026-05-04)。Librarian v1(2026-05-03)+ Analyst v0(2026-05-04)双双收官。32/32 health_check。systemd 双 timer 自动跑(Librarian 每日 06:00 SGT / Analyst 每周日 20:00 SGT)。首份周报 2026W19.md 8.5/10。Phase 2 累计 LLM 成本 $1.62(后续日跑 = $0,周跑 ≈ $0.15)。
 
-**Phase 3 Step 1+2 完成**(2026-05-04):
+**Phase 3 Step 1+2+3 完成**(2026-05-04):
 - Step 1:migration 004 `ops_decision_threads` 表(7 状态 CHECK + 3 索引 + FK→ops_decisions)在生产 DB 跑通,4/4 验收过
 - Step 2:`meta_ops/facilitator/{bots,run}.py` + `acc-facilitator.service`(Restart=always),4 Bot(@acc_ana_bot/@acc_fac_bot/@acc_wat_bot/@acc_cra_bot)同进程 polling,Jonathan 手机 4 个 /start 全回身份
+- Step 3:`meta_ops/facilitator/report_parser.py` 纯函数 + `CandidateDecision` dataclass,11/11 单测全过(本地 win + 服务器 linux 双跑),关键点:`### 决策 N:` 用全角 `:`,正则用 `[:：]` 同时接受
 
-下一站:**Step 3 周报解析器**(`reports/<week>.md` §4 → `list[CandidateDecision]`,纯函数 + 6+ 单测)。
+下一站:**Step 4 周报推送器**(@acc_ana_bot 推 TG + Inline Keyboard `[📄全文][✅采用][❌否决][💬讨论]` + pusher.timer Sun 20:05 SGT + 手动 `acc facilitator push`)。
 
 ---
 
@@ -241,25 +242,28 @@
 
 ## 8. 当前下一步(明确指令)
 
-**Phase 3 Step 1+2 完成。下一站:Step 3 周报解析器。**
+**Phase 3 Step 1+2+3 完成。下一站:Step 4 周报推送器。**
 
 新会话开局动作:
 1. 读 `CLAUDE.md`(自动加载)
 2. 读 **本文件**(`PROGRESS_SNAPSHOT.md`)
-3. 读 **`PHASE3_SPEC.md`** §Step 3(v1 定稿,§5 6 决策已锁定 — **不要再翻 v0-draft 推荐项**)
-4. Step 3 任务范围:
-   - 写 `meta_ops/facilitator/report_parser.py` — 纯函数 `parse_report(md_text) -> list[CandidateDecision]`
-   - dataclass:`decision_type` / `subject` / `rationale` / `verification_plan` / `risk` / `evidence`
-   - 失败容错:缺章节返 `[]`,字段缺失填 None + parse_warnings
-   - 6+ 单测覆盖:完整 2026W19.md / 缺 §4 / 字段乱序 / evidence JSON 损坏 / 单条决策 / 0 条
-5. 验收:用真实 `reports/2026W19.md` 跑出 4 条 CandidateDecision
-6. Step 3 完成 → Step 4 推送器(@acc_ana_bot 推 TG + Inline Keyboard + pusher.timer Sun 20:05 SGT)
+3. 读 **`PHASE3_SPEC.md`** §Step 4(v1 定稿,§5 6 决策已锁定 — **不要再翻 v0-draft 推荐项**)
+4. Step 4 任务范围(核心是"把 parser 输出推到 TG 群"):
+   - 写 `meta_ops/facilitator/pusher.py` — `push_weekly_report(week_iso) -> dict`
+   - 用 `BotRegistry.bot('analyst')` 推 1 summary + N 候选决策(各带 Inline Keyboard `[📄全文][✅采用][❌否决][💬讨论]`)
+   - 写 `ops_decision_threads` 行 state='displayed',记 tg_chat_id + tg_message_id
+   - pusher 启动前 check `reports/_meta/index.json` 最新 status='ok' + week 匹配,否则 deferred
+   - 写 `acc-facilitator-pusher.service` + `.timer`(`OnCalendar=Sun 20:05 SGT`)
+   - acc CLI 加 `acc facilitator push --week YYYY-WW`
+5. 验收:手动 `acc facilitator push --week 2026W19` → TG 群收 5 条消息(1+4) + DB 加 4 行 displayed
+6. Step 4 完成 → Step 5 状态机(回调 + 8 transition)
 
-**Step 1+2 关键产出**:
+**Step 1+2+3 关键产出**:
 - migration 004 `ops_decision_threads` 表已在生产 DB
-- `acc-facilitator.service` active(Restart=always,4 Bot 同进程 polling)
+- `acc-facilitator.service` active(Restart=always,4 Bot 同进程 polling,httpx 日志已屏)
 - 4 Bot 命名 = `@acc_ana_bot` / `@acc_fac_bot` / `@acc_wat_bot` / `@acc_cra_bot`
-- `httpx` 日志已屏蔽到 WARNING(防 token 泄进 journal)
+- `report_parser.parse_report()` 纯函数 + 11 单测全过(本地 + 服务器双跑)
+- fixture `meta_ops/facilitator/tests/fixtures/2026W19.md`(真实周报,4 条决策)
 
 ---
 
