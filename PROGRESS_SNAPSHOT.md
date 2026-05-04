@@ -244,33 +244,69 @@
 ## 8. 当前下一步(明确指令)
 
 **Phase 3 Step 1+2+3+4 完成。下一站:Step 5 状态机 + callback handlers。**
+**⚠ 阻塞**:Step 5 开干前需 Jonathan 答 3 个设计决策(见下 §8.A)。
 
 新会话开局动作:
 1. 读 `CLAUDE.md`(自动加载)
 2. 读 **本文件**(`PROGRESS_SNAPSHOT.md`)
 3. 读 **`PHASE3_SPEC.md`** §Step 5
-4. Step 5 任务范围:
-   - `state_machine.py` — 纯函数 `transition(thread, action, payload) -> (new_state, side_effects)`,8 单测覆盖所有合法/非法 transition
-   - `handlers.py` — 在 facilitator service 的 BotRegistry 上注册 CallbackQueryHandler:
-     - `dec:apv:<uuid>` → state=approved_pending_rationale + edit msg + Bot 提示 "请回复此消息写理由"
-     - `dec:rej:<uuid>` → state=rejected + edit msg(改文字 + 移按钮)
-     - `dec:dsc:<uuid>` → state=in_discussion + 调 LLM 单轮答疑(用 librarian.llm_client.call_claude kind='facilitator',evidence + extracted/ 重组 prompt)→ 回 200-500 字 → state 复位 displayed
-     - `dec:full:<uuid>` / `rep:full:<week>` → 推全文(决策卡 vs 整周报)
-   - `MessageHandler(REPLY)`:用户 reply 到处于 approved_pending_rationale 状态的 thread.tg_message_id → 写 ops_decisions(完整 6 字段,status='active')→ state='approved' + ops_decision_id 回填 + Bot 回 "决策 #xxxx 已记录"
-5. 验收(端到端):
-   - 现有 4 个 displayed 决策中挑 1 个点 ✅采用 → 输文字 → 看 ops_decisions 多 1 行 + thread state='approved' + ops_decision_id 关联
-   - 另 1 个点 ❌否决 → state='rejected' + 按钮消失
-   - 另 1 个点 💬讨论 → LLM 回答 200-500 字
-6. Step 5 完成 → Step 6 archiver(12h 自动归档 deferred)+ acc CLI 扩展
+4. **第一件事:把 §8.A 的 3 个决策问 Jonathan**(我已推荐 A1/B 混合/C2,但他要拍板)
+5. 决策答完才开 Step 5 编码;不要替他猜
 
-**Step 1+2+3+4 关键产出**:
-- migration 004 `ops_decision_threads` 表已在生产 DB(4 行 displayed)
+### 8.A 阻塞 — Step 5 开干前 3 个待答决策(2026-05-04 留)
+
+**决策 A:✅采用 后用户怎么"写理由"?**
+
+| 选项 | 说明 |
+|---|---|
+| **A1**(推荐)| Bot edit 决策卡加文字"✅ 采用中,回复此消息写理由" → 用户用 TG 原生 reply → Bot 用 `reply_to_message.message_id` 匹配 thread。无新 schema。 |
+| A2 | Bot 发新消息"决策 #xxxx 待理由,直接发文字即可" → 谁先发文字算谁的(单 admin 没歧义)。多决策 pending 时混乱。 |
+| A3 | 加 schema 字段 `prompt_message_id` 显式追踪 → migration 005。 |
+
+**决策 B:📄 全文按钮推什么?**
+
+| 位置 | 选项 |
+|---|---|
+| 决策卡上的 📄 | A. "卡内容已是完整版" 提示 / **B**. 推 evidence 数组完整 JSON |
+| summary 上的 📄 | A. 推完整 reports/<week>.md 分块文本 / **B**. 上传 .md 作为 TG Document |
+
+**决策 C:💬讨论 LLM prompt 怎么组装?**
+
+| 选项 | 说明 |
+|---|---|
+| C1 | 只给 evidence + 决策本体,不读 extracted/。快但浅。 |
+| **C2**(推荐)| evidence + 决策本体 + extracted/ 中被引用到的主题文件全文。系统 prompt 5-10K token,可控。 |
+| C3 | LLM 召回 extracted/ 段落。最优,但要写召回逻辑。 |
+
+### 8.B Step 5 任务范围(决策定后即开)
+
+- `state_machine.py` — 纯函数 `transition(thread, action, payload) -> (new_state, side_effects)`,8 单测覆盖所有合法/非法 transition
+- `handlers.py` — 在 facilitator service 的 BotRegistry 上注册 CallbackQueryHandler:
+  - `dec:apv:<uuid>` → state=approved_pending_rationale + edit msg + Bot 提示(策略=决策 A)
+  - `dec:rej:<uuid>` → state=rejected + edit msg(改文字 + 移按钮)
+  - `dec:dsc:<uuid>` → state=in_discussion + 调 LLM 单轮答疑(策略=决策 C,用 librarian.llm_client.call_claude kind='facilitator')→ 回 200-500 字 → state 复位 displayed
+  - `dec:full:<uuid>` / `rep:full:<week>` → 推全文(策略=决策 B)
+- `MessageHandler`(策略=决策 A):用户输入触发 → 找 approved_pending_rationale thread → 写 ops_decisions(完整 6 字段,status='active')→ state='approved' + ops_decision_id 回填 + Bot 回 "决策 #xxxx 已记录"
+- 验收端到端:挑 1 个 displayed 决策点 ✅ → 输文字 → 看 ops_decisions 多 1 行 + thread state='approved' + ops_decision_id 关联;另 1 个点 ❌ → rejected;另 1 个点 💬 → LLM 答 200-500 字
+
+### 8.C Step 1+2+3+4 关键产出(供新会话参考,不要重做)
+
+- migration 004 `ops_decision_threads` 表已在生产 DB(4 行 displayed,等 Step 5 推进)
 - `acc-facilitator.service` active(Restart=always,4 Bot 同进程 polling,httpx 日志已屏)
 - `acc-facilitator-pusher.timer` enabled(Sun 20:05 SGT)
 - 4 Bot = `@acc_ana_bot` / `@acc_fac_bot` / `@acc_wat_bot` / `@acc_cra_bot`
-- TG 协作群 = `acc_work_gp`(supergroup,chat_id 已填 .env)
-- `report_parser.parse_report()` + 11 单测全过
-- `pusher.push_weekly_report()` + `acc facilitator push` CLI
+- TG 协作群 = `acc_work_gp`(supergroup,chat_id 已填 .env `TG_ADMIN_CHAT_ID`)
+- `report_parser.parse_report()` + 11 单测全过(本地 + 服务器双跑)
+- `pusher.push_weekly_report()` + `acc facilitator push [--week] [--dry-run]` CLI
+- 实测:首跑 2026W19 → 5 条消息到达 acc_work_gp,DB 4 行 state='displayed' tg_message_id=13-16
+- Phase 3 git commits 全部 push 到 origin/main(HEAD = `0d09b9d`)
+
+### 8.D 安全债务(新会话开始时**先提醒 Jonathan**)
+
+- ⚠️ 4 个 TG_BOT_TOKEN_* 在本对话 transcript 暴露过(2026-05-04)
+- ⚠️ Anthropic API key + HK root 密码 在更早 transcript 暴露过
+- 建议:Phase 3 Step 7 端到端验收完成后立刻轮换全部 secret
+- chat_id `acc_work_gp` 也在 transcript 但不算 secret(非群成员无发言权)
 
 **Step 1+2+3 关键产出**:
 - migration 004 `ops_decision_threads` 表已在生产 DB
