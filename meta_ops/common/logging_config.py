@@ -34,3 +34,5 @@ def setup_logging(component: str, level=logging.INFO):
 
     # 静默第三方库的 INFO 噪音
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    # httpx INFO 会把请求 URL 完整写进日志(含 TG bot token / Anthropic key 等 secret)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
