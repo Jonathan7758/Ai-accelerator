@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from meta_ops.common.logging_config import setup_logging
 from meta_ops.facilitator.bots import BotRegistry
+from meta_ops.facilitator.handlers import register_handlers
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,9 @@ async def _run() -> None:
 
     registry = BotRegistry()
     log.info("facilitator: %d bots built", len(registry.all()))
+
+    # Step 5 handlers 装在 analyst bot 上(决策卡/按钮/reply 都属于 analyst)
+    register_handlers(registry.bot("analyst").app)
 
     # 启动每个 Bot 的 application + polling
     for entry in registry.all():
