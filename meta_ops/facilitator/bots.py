@@ -96,9 +96,21 @@ class BotRegistry:
 
 
 def _make_start_handler(entry: BotEntry):
-    """生成绑定该 Bot role 的 /start handler。"""
+    """生成绑定该 Bot role 的 /start handler。
+
+    log chat info(id / type / title)— 方便:
+    1. 抽群 chat_id 给 .env 的 TG_ADMIN_CHAT_ID
+    2. 后续调试群 vs 私聊 / chat 切换问题
+    """
 
     async def _start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        chat = update.effective_chat
+        if chat is not None:
+            log.info(
+                "/start on %s: chat_id=%s type=%s title=%r username=%r",
+                entry.role, chat.id, chat.type, chat.title, chat.username,
+            )
+
         is_placeholder = entry.role in ("watcher", "craftsman")
         if is_placeholder:
             text = (
