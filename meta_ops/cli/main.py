@@ -288,6 +288,36 @@ def analyst_latest(print_content):
 
 
 @cli.group()
+def facilitator():
+    """Facilitator 操作(Phase 3)。"""
+    pass
+
+
+@facilitator.command('push')
+@click.option('--week', 'week_iso', default=None,
+              help='ISO week like 2026W19 (default: current SGT week)')
+@click.option('--dry-run', is_flag=True,
+              help='不真发 TG,只 log 消息预览')
+def facilitator_push(week_iso, dry_run):
+    """手动推一份周报到 TG 群(Phase 3 Step 4)。"""
+    from dotenv import load_dotenv
+    load_dotenv("/opt/accelerator/.env")
+    from meta_ops.common.logging_config import setup_logging
+    setup_logging("facilitator-pusher")
+    from meta_ops.facilitator.pusher import push_weekly_report
+
+    if not week_iso:
+        today = datetime.now(SG_TZ).date()
+        y, w, _ = today.isocalendar()
+        week_iso = f"{y}W{w:02d}"
+
+    result = push_weekly_report(week_iso, dry_run=dry_run)
+    click.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    if result.get("status") in ("failed",):
+        sys.exit(1)
+
+
+@cli.group()
 def watcher():
     """Watcher 操作。"""
     pass
