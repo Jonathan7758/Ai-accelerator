@@ -16,3 +16,6 @@ python-dateutil==2.8.2
 
 # LLM (Phase 2)
 anthropic>=0.40.0
+
+# TG Bot (Phase 3)
+python-telegram-bot[ext]>=21.0,<22.0
