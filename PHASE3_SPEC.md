@@ -173,19 +173,27 @@ CREATE INDEX idx_decision_threads_tg_msg ON ops_decision_threads(tg_chat_id, tg_
 3. `meta_ops/facilitator/run.py` 启动入口(supervisord-like 长进程)
 4. systemd `acc-facilitator.service` 守护进程(Restart=always)
 
-**Bot 角色枚举**(决策 §5.3 影响数量,默认 4):
+**Bot 角色枚举**(spec v1 §5 决策 2:4 个 Bot 框架一次到位):
 
-| Bot | 用途 | 必须? |
+| Bot | 用途 | Phase 3 状态 |
 |---|---|---|
-| @acc_analyst_bot | 周报推送、回答 /ask 类问题 | ✅ 必须 |
-| @acc_facilitator_bot | 议程主持、决策回调、状态机 | ✅ 必须 |
-| @acc_watcher_bot | 异常告警(数据缺失、HK 不通) | ⬜ 待决策 §5.3 |
-| @acc_craftsman_bot | (Phase 4)派工 / PR 通知 | ⬜ Phase 4 加 |
+| @acc_analyst_bot | 周报推送、回答 /ask 类问题 | ✅ 完整 handler |
+| @acc_facilitator_bot | 议程主持、决策回调、状态机 | ✅ 完整 handler |
+| @acc_watcher_bot | 异常告警(数据缺失、HK 不通) | ⬜ 占位:仅 `/start` 报身份,业务 handler 留 Phase 4 |
+| @acc_craftsman_bot | 派工 / PR 通知 | ⬜ 占位:仅 `/start` 报身份,业务 handler 留 Phase 4 |
+
+**.env 必须 4 个 token 都配齐**(否则 Bot 框架启动报错):
+```
+TG_BOT_TOKEN_ANALYST=...
+TG_BOT_TOKEN_FACILITATOR=...
+TG_BOT_TOKEN_WATCHER=...
+TG_BOT_TOKEN_CRAFTSMAN=...
+```
 
 **验收**:
-- 启动 service,2(或 4)个 Bot 都能 `/start` 响应
-- 关闭其中一个 Bot token,其他不受影响
-- 每条消息开头有 emoji 角色标识(`🔍 Analyst:` / `🎯 Facilitator:` 等)
+- 启动 service,**4 个 Bot** 都能 `/start` 响应(Watcher/Craftsman 占位 Bot 回 "I'm acc_watcher_bot, business handlers come in Phase 4." 类似文案)
+- 关闭其中一个 Bot token,其他不受影响(框架隔离)
+- 每条消息开头有 emoji 角色标识(`🔍 Analyst:` / `🎯 Facilitator:` / `👁 Watcher:` / `🔨 Craftsman:`)
 
 ---
 
@@ -233,10 +241,11 @@ CREATE INDEX idx_decision_threads_tg_msg ON ops_decision_threads(tg_chat_id, tg_
    - 推一条 summary 消息(@acc_analyst_bot)+ Inline Keyboard `[📄 全文]` 按钮
    - 每条候选决策**单独一条消息**,各自带按钮 `[✅采用] [❌否决] [💬讨论]`
    - 写 ops_decision_threads(state='displayed',记 tg_message_id)
-3. 触发方式(待决策 §5.4):
-   - A. Analyst v0 跑完后 hook 自动调用
-   - B. 单独 systemd timer Sun 20:05 SGT
-   - C. 手动 `acc facilitator push --week YYYY-WW`
+3. 触发方式(spec v1 §5 决策 3 已锁定:**B + C**):
+   - **B**. 单独 systemd `acc-facilitator-pusher.service` + `.timer`(`OnCalendar=Sun 20:05 SGT`,Analyst 完成 5 分钟后)
+     - 跑前 check `reports/_meta/index.json` 最新条目 `status=='ok'` 且 `week == 当前 ISO 周`,否则跳过(写一行 deferred 到 l2_run_log,不报错)
+   - **C**. 手动 `acc facilitator push --week YYYY-WW` 兜底入口(忘记跑 / 想补推 / 测试时用)
+   - ❌ 不走 A(Analyst 进程内 hook)— 解耦优先,Analyst 跑挂不连带推送挂
 4. 失败处理:
    - reports 不存在 → 推一条 "周报缺失" 通知
    - 解析失败 → 推 raw markdown(不解析候选决策按钮)
@@ -246,6 +255,8 @@ CREATE INDEX idx_decision_threads_tg_msg ON ops_decision_threads(tg_chat_id, tg_
 - 手动 `acc facilitator push --week 2026W19` 成功推 5 条消息(1 summary + 4 候选)
 - ops_decision_threads 加 4 行 state='displayed'
 - 关闭 TG_BOT_TOKEN 后跑,优雅 mark_partial
+- `acc-facilitator-pusher.timer` enabled,`systemctl list-timers` 看到下次触发 = 下个 Sun 20:05 SGT
+- 用伪造 `index.json`(status='partial')触发,pusher 跳过推送 + l2_run_log 写一行 deferred
 
 ---
 
@@ -302,30 +313,33 @@ CREATE INDEX idx_decision_threads_tg_msg ON ops_decision_threads(tg_chat_id, tg_
 **端到端测试场景**:
 
 1. 手动 `acc facilitator push --week 2026W19`
-2. TG 群(/ 私聊)收到 5 条消息
+2. TG 群收到 5 条消息
 3. 在某条决策上点 [✅采用] → Bot 回 "请用一句话写理由"
 4. 用户输 "T2 已用 3 周,该轮换了"
 5. Bot 回 "决策 #d92a 已记录,预期 2026W20-W21 验证"
 6. SQL 查 ops_decisions:多了一行 status='active'
 7. SQL 查 ops_decision_threads:对应行 state='approved',ops_decision_id 关联
 
-**health_check 加项**(待决策 §5.5,候选):
-- ops_decision_threads 表存在(migration 004 应用)
-- acc-facilitator.service active
-- acc-facilitator-archiver.timer enabled
-- TG_BOT_TOKEN_ANALYST 在 .env(非空)
-- TG_BOT_TOKEN_FACILITATOR 在 .env(非空)
+**health_check 加项**(spec v1 §5 决策 5 已锁定:**5 项**,总数 32 → **37**):
+
+| # | 检查 | 通过条件 |
+|---|---|---|
+| 1 | `ops_decision_threads` 表存在(migration 004 应用)| `schema_versions` 含 v004 + `\d ops_decision_threads` 有 3 索引 |
+| 2 | `acc-facilitator.service` active | `systemctl is-active` 返回 `active` |
+| 3 | `acc-facilitator-pusher.timer` enabled | `systemctl is-enabled` 返回 `enabled` |
+| 4 | `acc-facilitator-archiver.timer` enabled | 同上 |
+| 5 | 4 个 TG_BOT_TOKEN 都在 .env 非空 | 单项合并:`TG_BOT_TOKEN_{ANALYST,FACILITATOR,WATCHER,CRAFTSMAN}` 全非空,任一缺则失败 |
 
 ---
 
 ## 3. Phase 3 完成标志
 
 - [ ] Step 1-7 全过
-- [ ] 4(或 2)个 Bot 都能正常收发,不串台
+- [ ] 4 个 Bot 都能正常收发,不串台(Watcher/Craftsman 占位 OK)
 - [ ] 决策状态机 8 transition 都有测试覆盖
 - [ ] 一次完整的"看周报 → 选 ✅ → 填 rationale → ops_decisions 入库"端到端跑通
 - [ ] 12 小时无响应自动归档生效
-- [ ] health_check 总数从 32 升到 ≥ 38
+- [ ] health_check 总数从 32 升到 **37**
 
 ---
 
@@ -342,69 +356,48 @@ CREATE INDEX idx_decision_threads_tg_msg ON ops_decision_threads(tg_chat_id, tg_
 
 ---
 
-## 5. 待定决策(开干前必须先答)
+## 5. 已确定决策(spec v1, 2026-05-04 Jonathan 拍板)
 
-> 以下 6 条不解决,Step 1-2 写不下去。请 Jonathan 拍板。
+> v0-draft 6 条待定决策已全部锁定。下面是定稿,实现时按这些来,**别再翻 v0-draft 推荐项**。
 
-### 决策 1:推送目标 = TG 群 / 私聊?
+### 决策 1:推送目标 = **TG 群**
 
-| 选项 | 利弊 |
-|---|---|
-| A. 推到 TG 群(`TG_ADMIN_CHAT_ID` 已是群 ID) | 透明,后续多人协作可见;但其他成员看到的可能是干扰 |
-| B. 推到 Jonathan 私聊 | 私密 / 干净;但 Phase 4 多人协作时要改 |
-| C. 私聊为主 + 群里只发"决策已审批"摘要 | 混合,工程量稍大 |
+- 用 `TG_ADMIN_CHAT_ID`(Phase 0 已是群 ID),所有周报 / 候选决策推到此群
+- 推论:`@acc_analyst_bot` / `@acc_facilitator_bot` 必须先被加入该群且授予发消息权限
+- 推论:CLAUDE.md §0.5 的"绝不允许 Bot 自动回应运营消息"在群里更重要 — Bot 仅响应 callback_query 和 reply 自己消息的 message,**不主动**回应群里其它消息
 
-**推荐**:**B**(私聊)。Phase 3 起步用户只有 Jonathan,私聊体验最直接。Phase 4 / Phase 5 真有团队协作时再改 group。
+### 决策 2:Bot 数量 = **4 个**(Watcher/Craftsman 占位)
 
-### 决策 2:Bot 数量 = 4 个还是 2 个?
+- 框架一次到位:启动 4 个 `Application` 实例
+- Phase 3 业务 handler 只装在 Analyst / Facilitator 上
+- Watcher / Craftsman 仅注册 `/start` 占位回调,业务 handler 留 Phase 4
+- 推论:`.env` 必须有 4 个 token,缺任何一个 service 启动就失败(防隐性遗漏)
 
-| 选项 | 设计含义 |
-|---|---|
-| A. 4 个 Bot(BLUEPRINT §8.3 设计) | 每条消息暴露"是谁说的、什么职能",帮助大脑切换决策模式 |
-| B. 2 个 Bot(@acc_analyst_bot + @acc_facilitator_bot) | Phase 3 实际只用 2 角色,Watcher/Craftsman 暂无消息要发 |
-| C. 1 个 Bot,角色用 emoji 前缀区分 | 工程量最小,但失去"职能切换"的认知好处 |
+### 决策 3:周报推送触发 = **B + C**
 
-**推荐**:**B**。Phase 3 v0 起 2 个,Phase 4 真要 Watcher 告警 / Craftsman 通知时再加。
+- **B**:`acc-facilitator-pusher.timer`(`OnCalendar=Sun 20:05 SGT`),Analyst 完成 5 分钟后跑
+- **C**:`acc facilitator push --week YYYY-WW` 手动入口(补推 / 测试 / 忘跑兜底)
+- pusher 启动时必查 `reports/_meta/index.json` 最新条目 `status=='ok'` 且 week 匹配,否则跳过 + 写 deferred 一行
+- ❌ 不走 A(进程内 hook),解耦优先
 
-### 决策 3:周报推送触发方式
+### 决策 4:`💬讨论` 回调 = **A 单轮 LLM**
 
-| 选项 | 优劣 |
-|---|---|
-| A. Analyst 跑完后内进程 hook 自动调用 | 一气呵成;但 Analyst v0 跑失败时推送也跟着没 |
-| B. 单独 systemd timer Sun 20:05 SGT(Analyst 完成 5 分钟后) | 解耦;但要确认 Analyst 已写完才跑(读 index.json status=ok) |
-| C. 手动 `acc facilitator push` | 最稳,但忘记跑就漏 |
+- Bot 用候选决策的 evidence + 关联 extracted/ 文档,组装 system prompt
+- 调一次 LLM 产出 200-500 字答疑,直接回到 TG,**不进入多轮会话**
+- 多轮 / 深度追问留 v1
+- 推论:状态机里 `in_discussion` 是过场态,LLM 答完后 thread state 应回到 `displayed`(用户可继续点 ✅/❌)
 
-**推荐**:**B**(单独 timer)+ **C**(保留手动入口)。timer 跑前 check `reports/_meta/index.json` 最新条目 status=='ok',否则跳过。
+### 决策 5:health_check 加 **5 项**(32 → 37)
 
-### 决策 4:`💬讨论` 回调的 LLM 行为
+详见 Step 7 表格。要点:
+- 4 项 service / timer / 表 各自独立
+- 4 个 TG_BOT_TOKEN 检查合并为 1 项(任一缺则失败)— 不展开成 4 项,因为运维语义上"4 个都得在"是单一约束
 
-用户点"💬讨论"按钮后,Bot 用 LLM 答 "为什么这么建议",但具体如何?
+### 决策 6:多 admin = **A 单 admin**(`TG_ADMIN_CHAT_ID` 不动)
 
-| 选项 | 行为 |
-|---|---|
-| A. 单轮:Bot 用 evidence + extracted/ 重组上下文,产出 1 段 200-500 字答疑 | v0 简单,易实现 |
-| B. 多轮:进入"讨论会话",用户可继续追问,Bot 用 conversation 模式 | 体验好,但状态管理复杂(超时 / 切换决策时如何) |
-| C. 仅推 raw evidence + 引用文档片段,**不调 LLM** | 最便宜 / 最稳;但用户看了原始 evidence 不一定理解 |
-
-**推荐**:**A** v0 单轮。多轮留 v1。
-
-### 决策 5:Phase 3 health_check 加几项?
-
-候选 5 项(决策见 Step 7)。
-
-**推荐**:**5 项**(总数 32 → 37)。如果 Bot 数量是 2,TG token 检查相应改 2 项。
-
-### 决策 6:多 admin / 多 chat 支持?
-
-`TG_ADMIN_CHAT_ID` 现在是单值。Phase 3 是否预留多 admin?
-
-| 选项 | 结果 |
-|---|---|
-| A. 单 admin(Phase 1 现状)| v0 简单;Phase 4 真要团队时再改 |
-| B. `.env` 改 `TG_ADMIN_CHAT_IDS`(逗号分隔列表) | 预留 |
-| C. 加 admin 表(`tg_admins`)|过度工程,Phase 3 不必 |
-
-**推荐**:**A**。预留 .env 改名留 v1.1。
+- Phase 3 全程沿用 Phase 1 的单值 `TG_ADMIN_CHAT_ID`
+- decided_by 字段直接记 TG username(group 里发 callback 的人是谁就是谁)
+- 多 admin / 多 chat 改名 / admin 表 全部留 v1.1+,本 spec 不预留 schema 字段
 
 ---
 
@@ -452,4 +445,4 @@ CREATE INDEX idx_decision_threads_tg_msg ON ops_decision_threads(tg_chat_id, tg_
 
 ---
 
-> **本 Spec 状态**:v0-draft (2026-05-04)。待 Jonathan 答复 §5 决策 1-6 后,定稿为 v1,正式开干 Step 1。
+> **本 Spec 状态**:**v1 定稿** (2026-05-04)。§5 6 决策已锁定。待 Jonathan 启 Step 1(migration 004:`ops_decision_threads` 表)。

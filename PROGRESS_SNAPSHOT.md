@@ -1,6 +1,6 @@
 # Accelerator L2 — 进度快照
 
-> **快照时间**: 2026-05-04(**Phase 2 整体收官 + Phase 3 spec v0-draft 已起草**)
+> **快照时间**: 2026-05-04(**Phase 2 整体收官 + Phase 3 spec v1 定稿**)
 > **目的**: 下次会话(包括跨机器接力)可直接接上,无需重新读全部历史
 > **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → 进入 §6 决定下一步
 
@@ -10,7 +10,7 @@
 
 **Phase 2 整体完成 ✅**(2026-05-04)。Librarian v1(2026-05-03)+ Analyst v0(2026-05-04)双双收官。32/32 health_check。systemd 双 timer 自动跑(Librarian 每日 06:00 SGT / Analyst 每周日 20:00 SGT)。首份周报 2026W19.md 8.5/10。Phase 2 累计 LLM 成本 $1.62(后续日跑 = $0,周跑 ≈ $0.15)。
 
-下一站:Phase 3 协作层(Facilitator + TG Bot 链 + 决策状态机)— 独立 spec 待起草。
+下一站:Phase 3 协作层(Facilitator + TG Bot 链 + 决策状态机)— **`PHASE3_SPEC.md` v1 已定稿**(6 决策锁定:TG群 / 4 Bot 框架 / pusher timer + 手动兜底 / 单轮 LLM / 5 项 health_check / 单 admin)。等启 Step 1(migration 004 `ops_decision_threads` 表)。
 
 ---
 
@@ -237,21 +237,21 @@
 
 ## 8. 当前下一步(明确指令)
 
-**Phase 3 spec v0-draft 已起草 (`PHASE3_SPEC.md`),阻塞在 §5 六项决策。**
+**Phase 3 spec v1 已定稿 (`PHASE3_SPEC.md`),阻塞 = 等 Jonathan 启 Step 1。**
 
 新会话开局动作:
 1. 读 `CLAUDE.md`(自动加载)
 2. 读 **本文件**(`PROGRESS_SNAPSHOT.md`)
-3. 读 **`PHASE3_SPEC.md`**(当前 active spec)
-4. **检查 Jonathan 是否已答 PHASE3_SPEC §5 六项决策**:
-   - 决策 1:推送 TG 群 / 私聊?(推荐 B 私聊)
-   - 决策 2:Bot 数量 4 / 2?(推荐 B 2 个)
-   - 决策 3:推送触发方式?(推荐 B systemd timer Sun 20:05 SGT + C 手动)
-   - 决策 4:`💬讨论` LLM 行为?(推荐 A 单轮)
-   - 决策 5:health_check 加几项?(推荐 5 项,总数 32 → 37)
-   - 决策 6:多 admin 支持?(推荐 A 单 admin)
-5. 已答 → 把 §5 改为"已确定决策(spec v1)",开 Step 1(migration 004:`ops_decision_threads` 表)
-6. 未答 → 提醒 Jonathan 答,不要替他猜
+3. 读 **`PHASE3_SPEC.md`**(v1 定稿,§5 6 决策已锁定 — **不要再翻 v0-draft 推荐项**)
+4. 6 决策锁定结果(2026-05-04):
+   - 决策 1:**TG 群**(沿用 `TG_ADMIN_CHAT_ID`)
+   - 决策 2:**4 Bot 框架一次到位**(Watcher/Craftsman 仅占位 `/start`,Phase 4 加业务 handler)
+   - 决策 3:**B + C** = systemd `acc-facilitator-pusher.timer` Sun 20:05 SGT + 手动 `acc facilitator push`
+   - 决策 4:**A 单轮 LLM**(`💬讨论` 不进多轮会话)
+   - 决策 5:**5 项 health_check**(32 → 37)
+   - 决策 6:**A 单 admin**(`TG_ADMIN_CHAT_ID` 不改名,decided_by 记 TG username)
+5. 启动 Step 1:写 migration `sql/004_decision_threads.sql`,服务器跑 + 写 schema_versions v004 + 验收 3 索引
+6. Step 1 完成 → Step 2 TG Bot 框架(4 token + BotRegistry + systemd `acc-facilitator.service`)
 
 ---
 
