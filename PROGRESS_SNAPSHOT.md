@@ -1,8 +1,8 @@
 # Accelerator L2 — 进度快照
 
-> **快照时间**: 2026-05-04(**Phase 2 整体收官**,32/32 health_check 通过)
-> **目的**: 下次会话可直接接上,无需重新读全部历史
-> **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → 决定下一步
+> **快照时间**: 2026-05-04(**Phase 2 整体收官 + Phase 3 spec v0-draft 已起草**)
+> **目的**: 下次会话(包括跨机器接力)可直接接上,无需重新读全部历史
+> **如何使用**: 新会话打开后,先读 `CLAUDE.md` → 本文件 → 进入 §6 决定下一步
 
 ---
 
@@ -231,8 +231,132 @@
 - 两个数据库连接:
   - 本机:`psql -h 127.0.0.1 -U acc_app -d accelerator`(`ACC_DB_PASSWORD` 在 .env)
   - Pulse 经隧道:`psql -h 127.0.0.1 -p 5433 -U l2_reader -d pulse`(`HK_DB_PASSWORD` 在 .env)
-- 部署:`ssh accelerator-jb "cd /opt/accelerator-git && git pull"` → `cp` 同步(暂无 deploy.sh 封装)
+- 部署:`ssh accelerator-jb /opt/accelerator-git/deploy.sh`(自动 git pull + rsync 同步代码)
 
 ---
 
-**END OF SNAPSHOT — Phase 1 + 收尾增强圆满收官,Phase 2 蓄势待发**
+## 8. 当前下一步(明确指令)
+
+**Phase 3 spec v0-draft 已起草 (`PHASE3_SPEC.md`),阻塞在 §5 六项决策。**
+
+新会话开局动作:
+1. 读 `CLAUDE.md`(自动加载)
+2. 读 **本文件**(`PROGRESS_SNAPSHOT.md`)
+3. 读 **`PHASE3_SPEC.md`**(当前 active spec)
+4. **检查 Jonathan 是否已答 PHASE3_SPEC §5 六项决策**:
+   - 决策 1:推送 TG 群 / 私聊?(推荐 B 私聊)
+   - 决策 2:Bot 数量 4 / 2?(推荐 B 2 个)
+   - 决策 3:推送触发方式?(推荐 B systemd timer Sun 20:05 SGT + C 手动)
+   - 决策 4:`💬讨论` LLM 行为?(推荐 A 单轮)
+   - 决策 5:health_check 加几项?(推荐 5 项,总数 32 → 37)
+   - 决策 6:多 admin 支持?(推荐 A 单 admin)
+5. 已答 → 把 §5 改为"已确定决策(spec v1)",开 Step 1(migration 004:`ops_decision_threads` 表)
+6. 未答 → 提醒 Jonathan 答,不要替他猜
+
+---
+
+## 9. 跨会话 / 跨机器接力须知
+
+> 这一节的内容在 Windows 本地 `~/.claude/projects/.../memory/MEMORY.md` 也有,但
+> 那个文件**不进 git**。以下内容是镜像版,任何机器都能从 git 读到。
+
+### 9.1 项目级偏好(Jonathan 已对齐,不要再改)
+
+- CLI 命令名 `acc`(不要叫 accelerator-cli)
+- 单语言 Python 3.11+,不引入 Node/Go
+- 不引入 LangChain/AutoGen 这类 LLM 框架,直接调 Anthropic SDK
+- 配置只用 `.env` + python-dotenv(不混 yaml/toml)
+- 调度只用 systemd timer(不用 cron)
+- 测试范围:Pulse Connector / change_detect / analyst.context 强制单测;Watcher/Librarian 主流程不强求
+- LLM 默认模型 = `claude-sonnet-4-6`(Phase 2 §0.4),需要更高质量再升 Opus
+- LLM 调用必须双轨留痕:DB 表 `l2_llm_calls`(摘要)+ `knowledge/_meta/llm_calls.jsonl`(全量),单一入口 `meta_ops.librarian.llm_client.call_claude()`
+
+### 9.2 个人协作偏好(Jonathan 风格)
+
+- 喜欢"先停下报告 + 多个选项 + 推荐方案",**不要替他做决策**
+- 阶段性结果倾向输出到本地 .md 文件,而非长聊天回复
+- 验证必须实打实跑,不接受"代码看起来对就 OK"
+- 进度文件写实诚,失败明确标 ❌,不粉饰
+
+### 9.3 协作红线(已验证有效)
+
+- **遇错立即停**,不绕过、不猜测修复
+- **Spec 没说的不做**(包括"看起来更好的小改进")
+- **Secret 永远在 .env**(600 perm, owner accelerator),不在代码里
+- **Schema 改动必走 migration 文件**,不直接 ALTER
+
+### 9.4 已踩过的坑(避免重复)
+
+#### scp 多文件同名互相覆盖(2026-05-02)
+`scp watcher/v0.py librarian/v0.py server:/tmp/` 在 `/tmp/` 下两个 v0.py 互相覆盖。
+→ **固化**:scp 多个同名源文件时,目标必须显式区分,或一次只 scp 一个。
+→ **更优**:`git pull` 在服务器拉,而非 `scp + cp`。
+
+#### SSH heredoc + Windows Git Bash 转义
+`ssh server "...\$VAR..."` 在 Windows Git Bash 上被处理两次,变量失踪/输出重复。
+→ **固化模式**:复杂命令一律走"本地写脚本 → scp 到 /tmp → server 端独立调用 → 删 /tmp 文件"三步,不再写多层嵌套引号 heredoc。
+→ 单条命令也用 `ssh server 'cmd1 && cmd2'`(单引号)优于双引号。
+
+#### Pulse schema vs Spec 文本不一致(Phase 1)
+- `articles.word_count` 实际在 `versions->>'word_count'` jsonb 嵌套
+- `articles.cover_url` 顶层全空,真封面在 `platform_versions.cover_<platform>`
+- `topics.angle` **不在 topics 表**,在 `articles.compliance_check->>'angle'`
+- `publishes.last_synced_at` / `interactions.platform/user_name/sentiment/replied` 全部不存在
+- `publishes.metrics` 存在但全是默认 `{}`
+
+→ **教训**:任何"按 spec 写 SQL"的代码,第一次跑要在真数据上 sanity check。
+→ **教训**:dataclass 字段 ⇄ DB 列 ⇄ Spec 文本三者一致性,要靠先建一份"数据契约对齐表"再写代码。
+
+#### deploy.sh 自更新延迟(2026-05-03)
+deploy.sh 改自己后,**当次跑用的是 bash 已加载在内存的旧版**,新配置直到下一次 deploy 才生效。
+→ 改 deploy.sh 后跑一次会"看似没生效",再跑一次才对。
+
+#### 数据契约规则(Phase 1 强制)
+写"读外部系统"代码前,**必须先 dump 真实 schema 并固化到 `knowledge/pulse/SCHEMA_NOTES.md`**。jsonb 字段在 Pulse 是"演进缓冲",不能假装是顶层列;Connector 在 Python 侧抽取(不用 SQL `->>` 路径)。已知空通道(如 `publishes.metrics={}`)Connector 正常拉,Watcher 写 ops_metrics 时空 dict 也写。
+
+### 9.5 在另一台机器启动 Claude Code 的步骤
+
+1. **clone 仓库**:
+   ```bash
+   git clone git@github.com:Jonathan7758/Ai-accelerator.git
+   # 或 HTTPS:
+   git clone https://github.com/Jonathan7758/Ai-accelerator.git
+   cd Ai-accelerator
+   ```
+
+2. **配 SSH alias 到 accelerator-jb**(只在你需要让 Claude Code 远程操作服务器时)。
+   `~/.ssh/config` 加:
+   ```
+   Host accelerator-jb
+       HostName <服务器 IP,见 INFRASTRUCTURE.md>
+       User root
+       IdentityFile ~/.ssh/<你的私钥>
+   ```
+   把你登录服务器的私钥从原机器拷过来(或新生成 + 加到服务器 `~/.ssh/authorized_keys`)。
+
+3. **启动 Claude Code**(在 `Ai-accelerator/` 目录下):
+   - CLAUDE.md 自动加载
+   - 主动让 Claude 读:`PROGRESS_SNAPSHOT.md`(本文件)+ `PHASE3_SPEC.md`(当前 active spec)
+   - 告诉 Claude:"继续 Phase 3 spec 起草,Jonathan 已答 §5 决策为 X/Y/Z"(或仍在 v0-draft)
+
+4. **不需要本地配 ANTHROPIC_API_KEY**:LLM 实跑都在服务器上(`/opt/accelerator/.env`)。本地 Claude Code 只做代码编辑 + git push + 远程 ssh 调用。
+
+5. **第一句让 Claude 跑的命令**(自检):
+   ```
+   ssh accelerator-jb 'cd /tmp && sudo -u accelerator /opt/accelerator/.venv/bin/python /opt/accelerator/scripts/health_check.py 2>&1 | tail -3'
+   ```
+   应该看到 `All 32 checks passed.`
+
+### 9.6 重要凭据状态(2026-05-04)
+
+| 凭据 | 状态 |
+|---|---|
+| Anthropic API key | ⚠️ 在 transcript 暴露过,**应该旋转**(Jonathan 还没确认做) |
+| HK root 密码 `1Qxcjyb!@` | ⚠️ 同上,**应该改密码** |
+| accelerator-jb 登录用 SSH key | 由 Jonathan 个人持有,在原机器 `~/.ssh/` |
+| HK l2_docs / l2_tunnel 用 SSH key | 在服务器 `/home/accelerator/.ssh/id_pulse_hk`(不动) |
+| GitHub project-pulse deploy key | 在服务器 `/home/accelerator/.ssh/id_pulse_repo`(只读 deploy key,不动) |
+
+---
+
+**END OF SNAPSHOT — Phase 2 收官,Phase 3 spec 待 Jonathan 答 6 决策**
