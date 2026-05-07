@@ -150,7 +150,8 @@ class FreshManifestCheck(Check):
 class PostgresCheck(Check):
     def __init__(self, name: str, env: Dict[str, str],
                  host_key: str, port_key: str, db_key: str,
-                 user_key: str, pwd_key: str, query: str = "SELECT 1"):
+                 user_key: str, pwd_key: str, query: str = "SELECT 1",
+                 must_contain: str = None):
         super().__init__(name)
         self.env = env
         self.host = env.get(host_key, "")
@@ -159,6 +160,7 @@ class PostgresCheck(Check):
         self.user = env.get(user_key, "")
         self.pwd = env.get(pwd_key, "")
         self.query = query
+        self.must_contain = must_contain
 
     def run(self):
         if not self.pwd:
@@ -174,9 +176,26 @@ class PostgresCheck(Check):
             )
             if result.returncode != 0:
                 return False, result.stderr.strip()[:200]
-            return True, f"query ok: {result.stdout.strip()[:60]}"
+            out = result.stdout.strip()
+            if self.must_contain and self.must_contain not in out:
+                return False, f"missing '{self.must_contain}' in output: {out[:60]!r}"
+            return True, f"query ok: {out[:60]}"
         except Exception as e:
             return False, str(e)[:200]
+
+
+class EnvVarsAllSetCheck(Check):
+    """Pass if every key in `keys` exists and is non-empty in the loaded .env."""
+    def __init__(self, name: str, env: Dict[str, str], keys: List[str]):
+        super().__init__(name)
+        self.env = env
+        self.keys = keys
+
+    def run(self):
+        missing = [k for k in self.keys if not self.env.get(k)]
+        if missing:
+            return False, f"missing/empty: {missing}"
+        return True, f"all {len(self.keys)} keys set"
 
 
 # ── 检查清单 ────────────────────────────────────────────────
@@ -361,6 +380,57 @@ def build_checks(env: Dict[str, str]) -> List[Check]:
         env, "ACC_DB_HOST", "ACC_DB_PORT", "ACC_DB_NAME",
         "ACC_DB_USER", "ACC_DB_PASSWORD",
         query="SELECT count(*) FROM l2_llm_calls WHERE kind='analyst'"
+    ))
+
+    # ── Phase 3 checks(spec §Step 7 = 5 项) ────────────────
+
+    # 1. ops_decision_threads 表 + migration 004 + 3 索引(单 query 复合)
+    checks.append(PostgresCheck(
+        "ops_decision_threads + migration 004 + 3 indexes",
+        env, "ACC_DB_HOST", "ACC_DB_PORT", "ACC_DB_NAME",
+        "ACC_DB_USER", "ACC_DB_PASSWORD",
+        query=(
+            "SELECT 'OK' WHERE "
+            "(SELECT count(*) FROM schema_versions WHERE version='004') = 1 "
+            "AND (SELECT count(*) FROM information_schema.tables "
+            "WHERE table_name='ops_decision_threads') = 1 "
+            "AND (SELECT count(*) FROM pg_indexes "
+            "WHERE tablename='ops_decision_threads') >= 3"
+        ),
+        must_contain="OK",
+    ))
+
+    # 2. acc-facilitator.service active(长进程,4 Bot polling)
+    checks.append(CommandCheck(
+        "acc-facilitator.service active",
+        ["systemctl", "is-active", "acc-facilitator.service"],
+        must_contain="active",
+    ))
+
+    # 3. pusher timer enabled
+    checks.append(CommandCheck(
+        "acc-facilitator-pusher.timer enabled",
+        ["systemctl", "is-enabled", "acc-facilitator-pusher.timer"],
+        must_contain="enabled",
+    ))
+
+    # 4. archiver timer enabled
+    checks.append(CommandCheck(
+        "acc-facilitator-archiver.timer enabled",
+        ["systemctl", "is-enabled", "acc-facilitator-archiver.timer"],
+        must_contain="enabled",
+    ))
+
+    # 5. 4 个 TG_BOT_TOKEN 全非空(单项合并)
+    checks.append(EnvVarsAllSetCheck(
+        "4 TG_BOT_TOKEN_* all set in .env",
+        env,
+        keys=[
+            "TG_BOT_TOKEN_ANALYST",
+            "TG_BOT_TOKEN_FACILITATOR",
+            "TG_BOT_TOKEN_WATCHER",
+            "TG_BOT_TOKEN_CRAFTSMAN",
+        ],
     ))
 
     return checks
