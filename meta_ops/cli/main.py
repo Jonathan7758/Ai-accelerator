@@ -196,6 +196,37 @@ def status():
             for st, n in rows:
                 print(f"  {st:<20} {n:>6}")
 
+    # Phase 3 决策线程:state 分布 + 最近活跃 week
+    print("\n── Phase 3 decision threads ──")
+    with db.cursor() as cur:
+        cur.execute("""
+            SELECT state, count(*)
+              FROM ops_decision_threads
+             GROUP BY state
+             ORDER BY count(*) DESC
+        """)
+        rows = cur.fetchall()
+    if not rows:
+        print("  (no threads yet — Step 4 pusher 还未跑过)")
+    else:
+        sym_map = {
+            'proposed': '⏳', 'displayed': '📨', 'in_discussion': '💬',
+            'approved_pending_rationale': '✅?', 'approved': '✅',
+            'rejected': '❌', 'deferred': '⏰',
+        }
+        bits = [f"{sym_map.get(s, '·')}{n}" for s, n in rows]
+        print("  " + "  ".join(bits))
+        # 待办(非终态)
+        with db.cursor() as cur:
+            cur.execute("""
+                SELECT count(*) FROM ops_decision_threads
+                 WHERE state IN ('displayed','in_discussion','approved_pending_rationale')
+            """)
+            pending = cur.fetchone()[0]
+        if pending:
+            print(f"  ⚠️ {pending} thread 处于待响应态(>12h 将被 archiver 归档)")
+        print("  legend: ⏳proposed 📨displayed 💬in_discussion ✅?pending_rationale  ✅approved ❌rejected ⏰deferred")
+
     # 需关注的运行: failed + degraded (不含 deferred 噪声)
     print("\n── Recent issues (failed / degraded, past 7 days) ──")
     with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -315,6 +346,77 @@ def facilitator_push(week_iso, dry_run):
     click.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
     if result.get("status") in ("failed",):
         sys.exit(1)
+
+
+@facilitator.command('archive')
+@click.option('--hours', default=12, show_default=True,
+              help='超此小时数仍未终态的 thread 归档为 deferred')
+@click.option('--dry-run', is_flag=True,
+              help='只打印待归档清单,不写 DB / 不调 TG')
+def facilitator_archive(hours, dry_run):
+    """手动触发一次决策线程归档(Phase 3 Step 6)。"""
+    from dotenv import load_dotenv
+    load_dotenv("/opt/accelerator/.env")
+    from meta_ops.common.logging_config import setup_logging
+    setup_logging("facilitator-archiver")
+    from meta_ops.facilitator.archiver import archive_stale_threads
+
+    result = archive_stale_threads(hours=hours, dry_run=dry_run)
+    click.echo(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+    if result.get("status") == "failed":
+        sys.exit(1)
+
+
+@facilitator.command('status')
+def facilitator_status():
+    """显示决策线程状态分布 + 最近 5 条 thread。"""
+    db = get_local_db()
+    print("=" * 60)
+    print(f"  Facilitator decision threads @ {datetime.now(SG_TZ).strftime('%Y-%m-%d %H:%M %Z')}")
+    print("=" * 60)
+
+    print("\n── State distribution (all-time) ──")
+    with db.cursor() as cur:
+        cur.execute("""
+            SELECT state, count(*)
+              FROM ops_decision_threads
+             GROUP BY state
+             ORDER BY count(*) DESC
+        """)
+        rows = cur.fetchall()
+    if not rows:
+        print("  (no threads yet)")
+    else:
+        sym_map = {
+            'proposed': '⏳', 'displayed': '📨', 'in_discussion': '💬',
+            'approved_pending_rationale': '✅?', 'approved': '✅',
+            'rejected': '❌', 'deferred': '⏰',
+        }
+        for state, n in rows:
+            sym = sym_map.get(state, '·')
+            print(f"  {sym} {state:<28} {n:>4}")
+
+    print("\n── Recent threads (latest 5) ──")
+    with db.cursor() as cur:
+        cur.execute("""
+            SELECT report_week, candidate_index, state, decided_by,
+                   created_at AT TIME ZONE 'Asia/Singapore' AS created_sg,
+                   ops_decision_id
+              FROM ops_decision_threads
+             ORDER BY created_at DESC
+             LIMIT 5
+        """)
+        rows = cur.fetchall()
+    if not rows:
+        print("  (none)")
+    else:
+        for week, idx, state, decided_by, created_sg, ops_id in rows:
+            ts = created_sg.strftime('%m-%d %H:%M')
+            who = decided_by or '-'
+            ops_short = (str(ops_id)[:8] + '…') if ops_id else '-'
+            print(f"  {ts}  {week} #{idx:<2} {state:<26} by {who:<14} ops={ops_short}")
+    print()
+    db.close()
 
 
 @cli.group()

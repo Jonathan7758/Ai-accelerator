@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Accelerator L2 Facilitator Archiver every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=acc-facilitator-archiver.service
+
+[Install]
+WantedBy=timers.target

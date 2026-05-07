@@ -1,0 +1,13 @@
+[Unit]
+Description=Accelerator L2 Facilitator Archiver — auto-defer stale decision threads (>12h)
+After=network-online.target acc-facilitator.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=accelerator
+WorkingDirectory=/opt/accelerator
+ExecStart=/opt/accelerator/.venv/bin/acc facilitator archive
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=120

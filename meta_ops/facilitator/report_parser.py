@@ -72,13 +72,17 @@ def _extract_field(body: str, fname: str) -> str | None:
     """提取 - **fname**: <value> 字段值。支持单行和多行(直到下个已知字段/分隔/EOF)。
 
     evidence 字段不走这条路,见 _EVIDENCE_JSON_RE。
+    返回前去掉首尾反引号 — LLM 偶尔把代码标识(如 decision_type/subject)整段
+    包反引号写,直接落库会污染下游(Phase 4 Craftsman 按 decision_type 路由会判错)。
     """
     pat = re.compile(
         r'^-\s*\*\*' + re.escape(fname) + r'\*\*\s*[:：]\s*(.*?)(?=' + _FIELDS_OR_BLOCKS + r'|\Z)',
         re.MULTILINE | re.DOTALL,
     )
     m = pat.search(body)
-    return m.group(1).strip() if m else None
+    if m is None:
+        return None
+    return m.group(1).strip().strip('`')
 
 
 def _split_decision_blocks(section_4: str) -> list[tuple[int, str, str]]:

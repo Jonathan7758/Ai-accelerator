@@ -294,3 +294,31 @@ def test_known_fields_constant():
     assert KNOWN_FIELDS[-1] == "evidence"
     assert "rationale" in KNOWN_FIELDS
     assert "verification_plan" in KNOWN_FIELDS
+
+
+# ----------------------------------------------------------------------
+# Test 11(Step 6 顺手补): _extract_field 应去首尾反引号
+# ----------------------------------------------------------------------
+def test_field_value_strips_backticks():
+    """LLM 偶尔把 decision_type / subject 整段包反引号,导致下游路由判错。
+    parser 必须在返回前 strip('`'),内部反引号(如 setup_cross_links_for_3lian())不动。
+    """
+    md = """## 4. 候选决策
+
+### 决策 1: 反引号污染样本
+- **decision_type**: `workflow_tweak`
+- **subject**: `content_matrix.setup_cross_links_for_3lian()`
+- **rationale**: 用户体验提升
+- **verification_plan**: 2026W20 验证
+- **risk**: 低
+- **evidence**:
+```json
+[]
+```
+"""
+    decisions = parse_report(md)
+    assert len(decisions) == 1
+    d = decisions[0]
+    # 首尾反引号去掉,值本身的下划线 / 括号保留
+    assert d.decision_type == "workflow_tweak"
+    assert d.subject == "content_matrix.setup_cross_links_for_3lian()"
