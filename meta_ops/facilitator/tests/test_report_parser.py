@@ -58,7 +58,7 @@ def test_parse_real_2026w19_returns_4_decisions():
 
     # 抽查决策 1 字段值
     d1 = decisions[0]
-    assert d1.decision_type == "`workflow_tweak`"
+    assert d1.decision_type == "workflow_tweak"  # 首尾反引号被 _extract_field strip(瑕 2 修复)
     assert "published" in d1.title
     assert d1.evidence[0]["type"] == "ops_metric"
 
@@ -120,7 +120,7 @@ def test_field_order_does_not_matter():
     decisions = parse_report(md)
     assert len(decisions) == 1
     d = decisions[0]
-    assert d.decision_type == "`prompt_change`"
+    assert d.decision_type == "prompt_change"  # 反引号被 strip(瑕 2)
     assert d.subject == "my_subject"
     assert d.rationale == "因为某个原因,需要做这个事"
     assert d.verification_plan == "下周看"
@@ -154,7 +154,7 @@ def test_missing_risk_field():
     assert d.risk is None
     assert any("missing field: risk" in w for w in d.parse_warnings)
     # 其他字段应正常解出
-    assert d.decision_type == "`workflow_tweak`"
+    assert d.decision_type == "workflow_tweak"  # 反引号被 strip(瑕 2)
     assert d.subject == "foo"
 
 
@@ -184,7 +184,7 @@ def test_evidence_json_malformed():
     assert d.evidence == []
     assert any("evidence JSON invalid" in w for w in d.parse_warnings)
     # 其他字段不受影响
-    assert d.decision_type == "`workflow_tweak`"
+    assert d.decision_type == "workflow_tweak"  # 反引号被 strip(瑕 2)
 
 
 # ----------------------------------------------------------------------
@@ -248,7 +248,7 @@ def test_section_4_does_not_leak_into_section_5():
         f"§5 内容泄漏到 §4 解析,got {len(decisions)} decisions"
     )
     assert decisions[0].title == "真决策"
-    assert decisions[0].decision_type == "`t`"
+    assert decisions[0].decision_type == "t"  # 反引号被 strip(瑕 2)
 
 
 # ----------------------------------------------------------------------
